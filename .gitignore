@@ -1,0 +1,79 @@
+# ─────────────────────────────
+# System / IDE
+# ─────────────────────────────
+.DS_Store
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+*.log
+
+# ─────────────────────────────
+# Environments
+# ─────────────────────────────
+.env
+*.env
+venv/
+solin3.11py/
+solinvenv/
+
+# ─────────────────────────────
+# Cache / Build Files
+# ─────────────────────────────
+.cache/
+dist/
+build/
+node_modules/
+__pypackages__/
+
+# ─────────────────────────────
+# OS-specific
+# ─────────────────────────────
+Thumbs.db
+
+# ─────────────────────────────
+# Model or Data Files
+# ─────────────────────────────
+*.ckpt
+*.pt
+*.bin
+*.pkl
+*.h5
+*.onnx
+*.jsonl
+*.csv
+*.sqlite
+*.db
+
+# ─────────────────────────────
+# AI Assets / Datasets
+# ─────────────────────────────
+micro_model/dataset_frieren/
+micro_model/dataset_reze/
+micro_model/dataset_tsukumo/
+micro_model/dataset_general/
+
+# ─────────────────────────────
+# Data / Tests
+# ─────────────────────────────
+data/
+tests/
+data/backups/
+data/temp/
+tests/temp/
+
+# ─────────────────────────────
+# Pycache (core AI modules)
+# ─────────────────────────────
+core_ai/__pycache__/
+core_ai/utility/__pycache__/
+
+# ─────────────────────────────
+# Secrets
+# ─────────────────────────────
+core_ai/.env
+
+# ─────────────────────────────
+# Don't ignore the .gitignore itself
+# ─────────────────────────────
+!.gitignore

@@ -1,0 +1,35 @@
+# Core runtime
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# NLP + Dataset
+transformers>=4.42.0
+torch>=2.3.0
+datasets>=2.19.0
+sentencepiece
+nltk
+vaderSentiment
+scikit-learn
+Levenshtein
+fuzzywuzzy
+
+# Text & audio processing
+pydub
+numpy
+tqdm
+sounddevice
+librosa
+simpleaudio
+
+# Web & interaction layer
+flask
+flask-cors
+eventlet
+websocket-client
+
+# ElevenLabs / TTS
+elevenlabs>=0.3.0
+
+# Local memory and embedding utils
+faiss-cpu
+openai
