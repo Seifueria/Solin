@@ -60,6 +60,11 @@ namespace Solin.Companion.Upstream
         private PixelPoint lastClickWhere;
         // While true the mouth cycles; Solin sets it for as long as a reply is being shown or spoken.
         internal bool Talking;
+        // The frame on screen right now, for a live portrait elsewhere.
+        internal Clip ShownClip { get { return body.Shown; } }
+        internal int ShownCell { get { return body.Cell; } }
+        internal int ShownMouth { get { return body.Talking; } }
+        internal Clip ShownMouthClip { get { return body.Mouth; } }
 
         // A short, visible reaction laid over the idle: a dip of acknowledgement, a jolt of annoyance, or a shake of refusal.
         private string reaction;
