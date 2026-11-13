@@ -27,8 +27,8 @@ namespace Solin.Companion.Upstream
         private readonly Clip idleBlinkGlitch = new Clip("idle_blink_glitch", 8, 24, 1.11, IdleShiftX);
         // Her mouth for the idle face, five cells cycled while she talks, drawn over the frame where it sits in the cell.
         private readonly Clip idleMouth = new Clip("idle_mouth", 5, 12, 1.11, IdleShiftX);
-        // Ten cells of static, played once on the way out of a spot and once on the way in.
-        private readonly Clip glitch = new Clip("glitch", 10, 15, 1.11);
+        // Ten cells of static, played once on the way out of a spot and once on the way in, slowed so the tear reads.
+        private readonly Clip glitch = new Clip("glitch", 10, 9, 1.11);
         private PixelPoint? teleportTo;
         private bool teleportLanding;
         // Fired once she has landed after a teleport.
@@ -173,6 +173,9 @@ namespace Solin.Companion.Upstream
             Clip shown = clip;
             if (clip == idle && blinkWith != null && cell >= IdleBlinkFrom && cell < IdleBlinkFrom + blinkWith.Count) { shown = blinkWith; cell -= IdleBlinkFrom; }
             bool settled = !dragging && clip != glitch;
+            // Out: she dissolves over the glitch. In: she reassembles over it.
+            double progress = clip == glitch ? Math.Clamp((now - clipStart) * glitch.Fps / glitch.Count, 0, 1) : 0;
+            body.Dissolve = clip != glitch ? 0 : teleportLanding ? 1 - progress : progress;
             // Breath and tilt scale with her size so they read the same at every size.
             double scale = body.Size / 240;
             body.Breathe = settled ? Math.Sin(now * BreathRate) * BreathDepth * scale : 0;

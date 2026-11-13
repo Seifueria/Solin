@@ -19,6 +19,10 @@ namespace Solin.Companion.Upstream
         internal double Tilt;
         internal bool FacingLeft;
         internal Point Centre;
+        // 0 is whole, 1 is gone: she fades and tears into drifting horizontal slices on the way out of a teleport, and
+        // reassembles on the way in. Solin's addition to the base's body.
+        internal double Dissolve;
+        private static readonly Random tear = new Random(7);
 
         internal Rect Place(Clip shown)
         {
@@ -55,11 +59,27 @@ namespace Solin.Companion.Upstream
             Clip shown = Shown;
             if (shown == null) return;
             using (context.PushTransform(Pose))
+            using (context.PushOpacity(Math.Clamp(1 - Dissolve * 0.95, 0, 1)))
             {
                 Rect place = Place(shown);
-                context.DrawImage(shown.Art(FacingLeft), new Rect(Cell * shown.Wide, 0, shown.Wide, shown.Tall), place);
-                if (Talking >= 0 && Mouth != null)
-                    context.DrawImage(Mouth.Art(false), new Rect(Talking * Mouth.Wide, 0, Mouth.Wide, Mouth.Tall), place);
+                Rect source = new Rect(Cell * shown.Wide, 0, shown.Wide, shown.Tall);
+                if (Dissolve <= 0.001)
+                {
+                    context.DrawImage(shown.Art(FacingLeft), source, place);
+                    if (Talking >= 0 && Mouth != null)
+                        context.DrawImage(Mouth.Art(false), new Rect(Talking * Mouth.Wide, 0, Mouth.Wide, Mouth.Tall), place);
+                    return;
+                }
+                // Torn into bands that slide sideways further the more dissolved she is, each band its own way.
+                const int bands = 14;
+                double bandTall = shown.Tall / (double)bands, bandHigh = place.Height / bands;
+                for (int i = 0; i < bands; i++)
+                {
+                    double slide = (tear.NextDouble() * 2 - 1) * Dissolve * Dissolve * Size * 0.6;
+                    Rect from = new Rect(source.X, i * bandTall, source.Width, bandTall);
+                    Rect to = new Rect(place.X + slide, place.Y + i * bandHigh, place.Width, bandHigh);
+                    context.DrawImage(shown.Art(FacingLeft), from, to);
+                }
             }
         }
     }

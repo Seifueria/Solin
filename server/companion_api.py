@@ -56,8 +56,12 @@ subscribers = []  # list[queue.Queue]
 speaking = False
 # What the coding agent is up to, from Claude Code hooks: idle, working, needs_you, done, error.
 agent = {"state": "idle", "detail": "", "session": None}
+# The last hook events as received, for working out what Claude Code actually sends.
+recent_hooks = []
 # What the coding agent is up to, from Claude Code hooks: idle, working, needs_you, done, error.
 agent = {"state": "idle", "detail": "", "session": None}
+# The last hook events as received, for working out what Claude Code actually sends.
+recent_hooks = []
 
 # One persistent session, "solin", backed by core_ai/state/solin_state.json; others live only while the server runs.
 DEFAULT_SESSION = "solin"
@@ -225,7 +229,7 @@ def agent_state_of(event):
     if name == "Notification":
         kind = event.get("notification_type") or ""
         text = (event.get("message") or "").strip()[:80]
-        if kind in ("permission_prompt", "elicitation_dialog", "idle_prompt") or "permission" in text.lower() or "waiting" in text.lower():
+        if kind in ("permission_prompt", "elicitation_dialog", "agent_needs_input", "idle_prompt") or "permission" in text.lower() or "waiting" in text.lower():
             return "needs_you", text or "claude needs you"
         return "working", text or "thinking"
     if name == "Stop":
@@ -238,6 +242,9 @@ def agent_state_of(event):
 @app.post("/hook")
 def hook():
     event = request.get_json(silent=True) or {}
+    with lock:
+        recent_hooks.append({"at": datetime.now().isoformat(timespec="seconds"), "event": event})
+        del recent_hooks[:-30]
     state, detail = agent_state_of(event)
     if state is None:
         return jsonify({"ignored": event.get("hook_event_name")})
@@ -247,6 +254,12 @@ def hook():
     if changed:
         broadcast("agent", dict(agent))
     return jsonify(agent)
+
+
+@app.get("/hook/recent")
+def hook_recent():
+    with lock:
+        return jsonify({"agent": agent, "recent": list(recent_hooks)})
 
 
 @app.get("/events")
