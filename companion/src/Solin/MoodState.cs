@@ -19,13 +19,13 @@ namespace Solin.Companion
     {
         private static readonly Dictionary<string, MoodLook> Looks = new Dictionary<string, MoodLook>(StringComparer.OrdinalIgnoreCase)
         {
-            ["neutral"] = new MoodLook(1.75, 2.2, 0.95, 0.65, 0.55),
-            ["warm"]    = new MoodLook(1.5, 2.6, 0.8, 1.0, 0.6),
-            ["curious"] = new MoodLook(2.1, 2.0, 1.6, 1.4, 0.7),
-            ["annoyed"] = new MoodLook(2.6, 1.6, 2.4, 0.4, 0.3),
-            ["calm"]    = new MoodLook(1.2, 2.8, 0.6, 0.5, 0.5),
-            ["tired"]   = new MoodLook(0.9, 3.2, 0.5, 1.2, 0.85),
-            ["teasing"] = new MoodLook(2.0, 2.2, 1.3, 1.8, 0.65),
+            ["neutral"] = new MoodLook(1.75, 4.5, 0.95, 0.65, 0.55),
+            ["warm"]    = new MoodLook(1.5, 5.5, 0.8, 1.0, 0.6),
+            ["curious"] = new MoodLook(2.3, 4.0, 1.6, 1.6, 0.7),
+            ["annoyed"] = new MoodLook(3.0, 3.0, 2.4, 0.4, 0.3),
+            ["calm"]    = new MoodLook(1.1, 6.0, 0.6, 0.5, 0.5),
+            ["tired"]   = new MoodLook(0.8, 7.0, 0.5, 1.4, 0.85),
+            ["teasing"] = new MoodLook(2.0, 4.5, 1.3, 2.0, 0.65),
         };
 
         internal string Mood { get; private set; } = "neutral";
@@ -37,10 +37,23 @@ namespace Solin.Companion
         internal void Set(string mood, double trust)
         {
             string next = string.IsNullOrEmpty(mood) ? "neutral" : mood;
-            if (next == Mood && Math.Abs(trust - Trust) < 1e-9) return;
+            bool moodChanged = next != Mood;
+            if (!moodChanged && Math.Abs(trust - Trust) < 1e-9) return;
             Mood = next;
             Trust = trust;
             Changed?.Invoke(this);
+            if (moodChanged) MoodChanged?.Invoke(next);
+        }
+
+        // Fires only when the mood itself moves, not on a trust nudge alone.
+        internal event Action<string> MoodChanged;
+
+        // The body reaction a fresh mood earns: annoyed jolts, tired shakes it off, the rest dip in acknowledgement.
+        internal static string ReactionFor(string mood)
+        {
+            if (mood == "annoyed") return "jolt";
+            if (mood == "tired") return "shake";
+            return "dip";
         }
     }
 }

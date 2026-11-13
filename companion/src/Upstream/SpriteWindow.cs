@@ -45,6 +45,12 @@ namespace Solin.Companion.Upstream
         internal Action Poked;
         internal Action Dragged;
 
+        // A short, visible reaction laid over the idle: a dip of acknowledgement, a jolt of annoyance, or a shake of refusal.
+        private string reaction;
+        private double reactionAt = -10;
+        private const double ReactionLife = 1.2;
+        internal void React(string kind) { reaction = kind; reactionAt = Now; }
+
         internal SpriteWindow(double size = 240)
         {
             Title = "Solin";
@@ -112,8 +118,18 @@ namespace Solin.Companion.Upstream
             Clip shown = clip;
             if (clip == idle && blinkWith != null && cell >= IdleBlinkFrom && cell < IdleBlinkFrom + blinkWith.Count) { shown = blinkWith; cell -= IdleBlinkFrom; }
             bool settled = !dragging;
-            body.Breathe = settled ? Math.Sin(now * BreathRate) * BreathDepth : 0;
+            // Breath and tilt scale with her size so they read the same at every size.
+            double scale = body.Size / 240;
+            body.Breathe = settled ? Math.Sin(now * BreathRate) * BreathDepth * scale : 0;
             body.Tilt = settled ? Math.Sin(now * TiltRate) * TiltDepth : 0;
+            double age = now - reactionAt;
+            if (settled && age >= 0 && age < ReactionLife)
+            {
+                double dip = Math.Sin(age / ReactionLife * Math.PI);
+                if (reaction == "dip") body.Breathe -= 9 * dip * scale;
+                if (reaction == "jolt") { body.Breathe += 14 * dip * scale; body.Tilt -= 8 * dip; }
+                if (reaction == "shake" && age < 0.5) body.Tilt += 8 * Math.Sin(age * 50) * (1 - age * 2);
+            }
             body.Shown = shown;
             body.Cell = cell;
             body.InvalidateVisual();

@@ -57,8 +57,10 @@ namespace Solin.Companion
                 sprite.TiltDepth = look.TiltDepth;
                 sprite.BlinkChance = look.BlinkChance;
             };
+            mood.MoodChanged += delegate(string name) { sprite.React(MoodState.ReactionFor(name)); };
             backend.MoodChanged += delegate(string name, double trust) { Dispatcher.UIThread.Post(() => mood.Set(name, trust)); };
-            sprite.Poked += delegate { _ = backend.Event("poked"); };
+            // A click answers at once with a dip, so she feels touched even before the backend has a mood to send back.
+            sprite.Poked += delegate { sprite.React("dip"); _ = backend.Event("poked"); };
             sprite.Dragged += delegate { _ = backend.Event("dragged"); };
             sprite.Opened += async delegate
             {
