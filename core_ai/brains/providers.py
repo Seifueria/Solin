@@ -84,9 +84,10 @@ class ClaudeCli(Provider):
         for m in messages[:-1]:
             transcript.append(("User: " if m["role"] == "user" else "Solin: ") + m["content"])
         prompt = "\n".join(transcript + ["User: " + messages[-1]["content"], "Solin:"])
-        # Bare mode, no tools, no saved session and no user settings: Solin's line in, Claude's line out, nothing else.
+        # No tools, no saved session and no user settings: Solin's line in, Claude's line out, nothing else.
+        # Not --bare: that mode skips the stored claude.ai login and answers "Not logged in".
         args = [self.path, "-p", "--output-format", "json", "--system-prompt", system, "--model", self.model,
-                "--bare", "--tools", "", "--no-session-persistence", "--setting-sources", ""]
+                "--tools", "", "--no-session-persistence", "--setting-sources", ""]
         with tempfile.TemporaryDirectory() as empty:
             done = subprocess.run(args, input=prompt, capture_output=True, text=True, timeout=180, cwd=empty)
         if done.returncode != 0:

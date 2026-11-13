@@ -14,7 +14,7 @@ and takes the first that can run; name one to force it.
 | name | needs | notes |
 |---|---|---|
 | anthropic | `ANTHROPIC_API_KEY` in `core_ai/.env` | Claude via the Messages API. Needs API credits in the Anthropic Console, which a Claude Pro subscription does not include. |
-| claude-cli | a `claude` command on PATH | Claude Code in print mode, which does run on a Claude Pro subscription. Install Claude Code, run `claude` once to log in. Untested so far. |
+| claude-cli | a `claude` command on PATH | Claude Code in print mode, which runs on a Claude Pro subscription. Install with `brew install --cask claude-code`, then `claude auth login`. Tested. |
 | gemini | `GEMINI_API_KEY` in `core_ai/.env` | A free key from Google AI Studio (aistudio.google.com). Separate from a Gemini app subscription. |
 | openai | `OPENAI_API_KEY` | Needs credits on the OpenAI account. |
 | ollama | Ollama running with the model pulled | Local. Uses the small-model layout. |
