@@ -67,7 +67,8 @@ how often she blinks (see `src/Solin/MoodState.cs`).
 | do | she |
 |---|---|
 | click | dips, tells the backend she was poked |
-| drag | moves; the backend hears she was dragged |
+| drag | hangs from the cursor; the backend hears she was dragged |
+| throw (let go mid-swing) | flies, bounces off the screen edges, lands; the third throw in a row she takes personally |
 | double-click | opens a typing box under her feet. Enter sends, Escape closes |
 | reply arrives | types into a bubble above her head, mouth moving, then fades |
 

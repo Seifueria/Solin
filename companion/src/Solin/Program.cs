@@ -36,6 +36,8 @@ namespace Solin.Companion
         // The bubble typing and her voice playing each move her mouth; it stops when neither is on.
         private int mouthHolds;
         private bool thinking;
+        // Throws in a row; the third one she takes personally.
+        private int throws;
         private string agentState = "idle";
         // While Claude is waiting on you she keeps bristling until the state moves on.
         private readonly DispatcherTimer bristle = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
@@ -88,6 +90,8 @@ namespace Solin.Companion
             };
             sprite.Poked += delegate { sprite.React("dip"); _ = backend.Event("poked"); };
             sprite.Dragged += delegate { _ = backend.Event("dragged"); };
+            sprite.Thrown += delegate { throws++; _ = backend.Event(throws >= 3 ? "thrown" : "dragged"); };
+            sprite.FlightLanded += delegate { sprite.React(throws >= 3 ? "jolt" : "dip"); if (throws >= 3) throws = 0; };
             sprite.TalkAsked += delegate
             {
                 // Under her feet, centred.

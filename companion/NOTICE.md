@@ -38,6 +38,7 @@ this notice. The list below is kept current.
 | assets/sprites/idle_blink_glitch.png | same | placeholder |
 | assets/sprites/idle_mouth.png | same | placeholder |
 | assets/sprites/glitch.png | same | placeholder, used for teleports |
+| assets/sprites/dangle.png | same | placeholder, held and flying |
 
 ## Ideas described, no code copied
 

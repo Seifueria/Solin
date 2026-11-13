@@ -29,6 +29,15 @@ namespace Solin.Companion.Upstream
         private readonly Clip idleMouth = new Clip("idle_mouth", 5, 12, 1.11, IdleShiftX);
         // Ten cells of static, played once on the way out of a spot and once on the way in, slowed so the tear reads.
         private readonly Clip glitch = new Clip("glitch", 10, 9, 1.11);
+        // Hanging from the cursor while held, and tumbling while thrown.
+        private readonly Clip dangle = new Clip("dangle", 24, 10, 1.11);
+        // Flight after a throw, in screen pixels per second; Solin's addition over the base's drag.
+        private bool flying;
+        private double flyX, flyY, flyVx, flyVy;
+        private readonly System.Collections.Generic.List<(double at, PixelPoint where)> dragTrail = new System.Collections.Generic.List<(double, PixelPoint)>();
+        private const double Gravity = 2600, Bounce = 0.45, ThrowSpeed = 900;
+        internal Action Thrown;
+        internal Action FlightLanded;
         private PixelPoint? teleportTo;
         private bool teleportLanding;
         // Fired once she has landed after a teleport.
@@ -145,8 +154,43 @@ namespace Solin.Companion.Upstream
             blinkWith = null;
         }
 
+        private double lastTick;
+
+        private void Fly(double dt)
+        {
+            Screen screen = Screens.ScreenFromPoint(new PixelPoint((int)flyX + Px(Width / 2), (int)flyY + Px(Height / 2))) ?? Screens.Primary;
+            if (screen == null) { flying = false; return; }
+            PixelRect area = screen.WorkingArea;
+            int wide = Px(Width), tall = Px(Height);
+            flyVy += Gravity * dt;
+            flyX += flyVx * dt;
+            flyY += flyVy * dt;
+            if (flyX < area.X) { flyX = area.X; flyVx = -flyVx * Bounce; }
+            if (flyX > area.Right - wide) { flyX = area.Right - wide; flyVx = -flyVx * Bounce; }
+            if (flyY < area.Y) { flyY = area.Y; flyVy = -flyVy * Bounce; }
+            double floor = area.Bottom - tall;
+            if (flyY >= floor)
+            {
+                flyY = floor;
+                if (Math.Abs(flyVy) > 260) flyVy = -flyVy * Bounce;
+                else
+                {
+                    flying = false;
+                    Position = new PixelPoint((int)flyX, (int)flyY);
+                    Play(idle);
+                    FlightLanded?.Invoke();
+                    return;
+                }
+                flyVx *= 0.7;
+            }
+            Position = new PixelPoint((int)flyX, (int)flyY);
+        }
+
         private void Advance(double now)
         {
+            double dt = lastTick > 0 ? Math.Min(now - lastTick, 0.1) : 0.033;
+            lastTick = now;
+            if (flying) Fly(dt);
             int index = (int)((now - clipStart) * clip.Fps);
             if (clip == glitch && index >= glitch.Count)
             {
@@ -177,14 +221,16 @@ namespace Solin.Companion.Upstream
             int cell = index % clip.Count;
             Clip shown = clip;
             if (clip == idle && blinkWith != null && cell >= IdleBlinkFrom && cell < IdleBlinkFrom + blinkWith.Count) { shown = blinkWith; cell -= IdleBlinkFrom; }
-            bool settled = !dragging && clip != glitch;
+            if ((pressed || flying) && clip != dangle && clip != glitch) Play(dangle);
+            if (!pressed && !flying && clip == dangle) Play(idle);
+            bool settled = !dragging && !flying && clip != glitch;
             // Out: she dissolves over the glitch. In: she reassembles over it.
             double progress = clip == glitch ? Math.Clamp((now - clipStart) * glitch.Fps / glitch.Count, 0, 1) : 0;
             body.Dissolve = clip != glitch ? 0 : teleportLanding ? 1 - progress : progress;
             // Breath and tilt scale with her size so they read the same at every size.
             double scale = body.Size / 240;
             body.Breathe = settled ? Math.Sin(now * BreathRate) * BreathDepth * scale : 0;
-            body.Tilt = settled ? Math.Sin(now * TiltRate) * TiltDepth : 0;
+            body.Tilt = settled ? Math.Sin(now * TiltRate) * TiltDepth : flying ? Math.Clamp(flyVx / 60, -25, 25) : 0;
             double age = now - reactionAt;
             if (settled && age >= 0 && age < ReactionLife)
             {
@@ -213,6 +259,8 @@ namespace Solin.Companion.Upstream
             dragging = false;
             downAt = this.PointToScreen(at);
             grab = new PixelPoint(downAt.X - Position.X, downAt.Y - Position.Y);
+            flying = false;
+            dragTrail.Clear();
         }
 
         protected override void OnPointerMoved(PointerEventArgs e)
@@ -221,7 +269,12 @@ namespace Solin.Companion.Upstream
             if (!pressed) return;
             PixelPoint at = this.PointToScreen(e.GetPosition(this));
             if (!dragging && (Math.Abs(at.X - downAt.X) > 4 || Math.Abs(at.Y - downAt.Y) > 4)) dragging = true;
-            if (dragging) Position = new PixelPoint(at.X - grab.X, at.Y - grab.Y);
+            if (dragging)
+            {
+                Position = new PixelPoint(at.X - grab.X, at.Y - grab.Y);
+                dragTrail.Add((Now, Position));
+                if (dragTrail.Count > 8) dragTrail.RemoveAt(0);
+            }
         }
 
         protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -230,7 +283,26 @@ namespace Solin.Companion.Upstream
             if (!pressed || e.InitialPressMouseButton != MouseButton.Left) return;
             pressed = false;
             e.Pointer.Capture(null);
-            if (dragging) Dragged?.Invoke();
+            if (dragging)
+            {
+                // Speed over the last few drag samples; fast enough and she flies.
+                if (dragTrail.Count >= 2)
+                {
+                    (double t0, PixelPoint p0) = dragTrail[0];
+                    (double t1, PixelPoint p1) = dragTrail[dragTrail.Count - 1];
+                    double span = Math.Max(t1 - t0, 0.016);
+                    double vx = (p1.X - p0.X) / span, vy = (p1.Y - p0.Y) / span;
+                    if (Math.Sqrt(vx * vx + vy * vy) > ThrowSpeed)
+                    {
+                        flying = true;
+                        flyX = Position.X; flyY = Position.Y; flyVx = vx; flyVy = vy;
+                        Thrown?.Invoke();
+                        dragging = false;
+                        return;
+                    }
+                }
+                Dragged?.Invoke();
+            }
             else
             {
                 double now = Now;
