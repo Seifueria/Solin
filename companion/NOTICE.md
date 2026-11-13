@@ -20,7 +20,9 @@ are added.
 
 | companion file | upstream file | notes |
 |---|---|---|
-| (none yet) | | scaffold only |
+| src/Upstream/Clip.cs | cross/Pet.cs, class Clip | legacy cells, hologram and threaded flip loading removed |
+| src/Upstream/Body.cs | cross/Pet.cs, class Body | hologram and sleeping z's removed |
+| src/Upstream/SpriteWindow.cs | cross/Pet.cs, class Pet | window setup, Play, idle/blink part of Advance, drag handlers only |
 
 ## Placeholder art
 
@@ -31,7 +33,9 @@ this notice. The list below is kept current.
 
 | file | source | status |
 |---|---|---|
-| (none yet) | | |
+| assets/sprites/idle.png | lachydotmcg/capri-desktop assets/sprites | placeholder, replace with Solin art |
+| assets/sprites/idle_blink.png | same | placeholder |
+| assets/sprites/idle_blink_glitch.png | same | placeholder |
 
 ## Ideas described, no code copied
 

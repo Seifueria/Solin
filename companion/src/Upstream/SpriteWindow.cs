@@ -1,0 +1,157 @@
+// Derived from cross/Pet.cs in lachydotmcg/capri-desktop, commit 26224db (window setup, Play, the idle and blink part of
+// Advance, and the drag handlers). PolyForm Noncommercial 1.0.0.
+// Trimmed for Solin: one idle loop with blinks, breathing and drag-to-move. Perching, walking, falling, menus, talk and
+// the brain are not here; Solin's own state drives what gets added.
+using System;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
+using Avalonia.Threading;
+
+namespace Solin.Companion.Upstream
+{
+    internal sealed class SpriteWindow : Window
+    {
+        // The idle set is 60 cells at 24 fps, drawn 1.11 squares tall, its cells cut to the outline 11 px right of centre in 384 px art.
+        private const double IdleShiftX = 11.0 / 384 * 1.11;
+        // The closed eye sits on cells 25 to 32 of that loop.
+        private const int IdleBlinkFrom = 24;
+        // Room around her square so a tilt or a bob never clips at the window's edge.
+        private const double Room = 1.25;
+
+        private readonly Clip idle = new Clip("idle", 60, 24, 1.11, IdleShiftX);
+        private readonly Clip idleBlink = new Clip("idle_blink", 8, 24, 1.11, IdleShiftX);
+        private readonly Clip idleBlinkGlitch = new Clip("idle_blink_glitch", 8, 24, 1.11, IdleShiftX);
+
+        private readonly Body body = new Body();
+        private readonly DispatcherTimer frames = new DispatcherTimer();
+        private readonly Random random = new Random();
+        private readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+
+        private Clip clip;
+        private double clipStart;
+        private int idleCycle;
+        private Clip blinkWith;
+
+        private bool pressed, dragging;
+        private PixelPoint downAt, grab;
+
+        internal SpriteWindow(double size = 240)
+        {
+            Title = "Solin";
+            SystemDecorations = SystemDecorations.None;
+            Background = Brushes.Transparent;
+            TransparencyLevelHint = new[] { WindowTransparencyLevel.Transparent };
+            Topmost = true;
+            ShowInTaskbar = false;
+            CanResize = false;
+            ShowActivated = false;
+            WindowStartupLocation = WindowStartupLocation.Manual;
+
+            body.Size = size;
+            Width = Height = size * Room;
+            body.Centre = new Point(Width / 2, Height / 2);
+            RenderOptions.SetBitmapInterpolationMode(body, BitmapInterpolationMode.HighQuality);
+            Content = body;
+
+            Play(idle);
+            frames.Interval = TimeSpan.FromMilliseconds(33);
+            frames.Tick += delegate { Advance(Now); };
+            Opened += delegate { PlaceOnPrimary(); frames.Start(); };
+            Closed += delegate { frames.Stop(); pressed = dragging = false; };
+        }
+
+        private double Now { get { return clock.Elapsed.TotalSeconds; } }
+
+        private void PlaceOnPrimary()
+        {
+            Screen screen = Screens.Primary ?? (Screens.All.Count > 0 ? Screens.All[0] : null);
+            if (screen == null) return;
+            PixelRect area = screen.WorkingArea;
+            int wide = Px(Width), tall = Px(Height);
+            // Bottom centre of the work area, toes at the bottom edge.
+            Position = new PixelPoint(area.X + (area.Width - wide) / 2, area.Bottom - tall);
+        }
+
+        private int Px(double points)
+        {
+            return (int)Math.Round(points * (Screens.Primary?.Scaling ?? 1));
+        }
+
+        private void Play(Clip next)
+        {
+            clip = next;
+            clipStart = Now;
+            idleCycle = 0;
+            blinkWith = null;
+        }
+
+        private void Advance(double now)
+        {
+            int index = (int)((now - clipStart) * clip.Fps);
+            if (clip == idle)
+            {
+                int cycle = index / clip.Count;
+                if (cycle != idleCycle)
+                {
+                    idleCycle = cycle;
+                    double roll = random.NextDouble();
+                    blinkWith = roll < 0.1 ? idleBlinkGlitch : roll < 0.55 ? idleBlink : null;
+                }
+            }
+            int cell = index % clip.Count;
+            Clip shown = clip;
+            if (clip == idle && blinkWith != null && cell >= IdleBlinkFrom && cell < IdleBlinkFrom + blinkWith.Count) { shown = blinkWith; cell -= IdleBlinkFrom; }
+            bool settled = !dragging;
+            body.Breathe = settled ? Math.Sin(now * 1.75) * 2.2 : 0;
+            body.Tilt = settled ? Math.Sin(now * 0.95) * 0.65 : 0;
+            body.Shown = shown;
+            body.Cell = cell;
+            body.InvalidateVisual();
+        }
+
+        protected override void OnPointerPressed(PointerPressedEventArgs e)
+        {
+            base.OnPointerPressed(e);
+            if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+            Point at = e.GetPosition(this);
+            if (!body.Opaque(at)) return;
+            e.Pointer.Capture(this);
+            pressed = true;
+            dragging = false;
+            downAt = this.PointToScreen(at);
+            grab = new PixelPoint(downAt.X - Position.X, downAt.Y - Position.Y);
+        }
+
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            base.OnPointerMoved(e);
+            if (!pressed) return;
+            PixelPoint at = this.PointToScreen(e.GetPosition(this));
+            if (!dragging && (Math.Abs(at.X - downAt.X) > 4 || Math.Abs(at.Y - downAt.Y) > 4)) dragging = true;
+            if (dragging) Position = new PixelPoint(at.X - grab.X, at.Y - grab.Y);
+        }
+
+        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        {
+            base.OnPointerReleased(e);
+            if (!pressed || e.InitialPressMouseButton != MouseButton.Left) return;
+            pressed = false;
+            e.Pointer.Capture(null);
+            if (!dragging) Clicked();
+            dragging = false;
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            base.OnPointerCaptureLost(e);
+            pressed = dragging = false;
+        }
+
+        // A plain click on her. Nothing yet; Solin's own reactions hook in here later.
+        private void Clicked() { }
+    }
+}

@@ -10,7 +10,7 @@
     <Version>0.1.0</Version>
     <Product>Solin</Product>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <NoWarn>$(NoWarn);CA1416;CS0649</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.3.22" />
