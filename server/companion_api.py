@@ -8,7 +8,9 @@ Solin-owned. Wraps the existing core_ai modules without changing them.
                           -> {"visible", "internal", "mood", "trust", "audio"}
     POST /event           {"session_id", "kind"}   companion-side happenings, e.g. "poked"
                           -> {"mood", "trust"}
-    GET  /events          server-sent events: mood, reply, speaking
+    GET  /events          server-sent events: mood, reply, speaking, brain
+    GET  /brains          every configured brain, whether it can run, and the current one
+    POST /brain           {"name": "ollama"}  switch the live brain
 
 Run from the repo root:  python3 -m server.companion_api
 Port: SOLIN_COMPANION_PORT, default 47831. Binds 127.0.0.1 only and rejects
@@ -32,13 +34,11 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(os.path.join(ROOT, "core_ai", ".env"))
 
-from core_ai import load_prompt, memory  # noqa: E402
+from core_ai import memory  # noqa: E402
 
 VERSION = "0.1.0"
 PORT = int(os.environ.get("SOLIN_COMPANION_PORT", "47831"))
 
-# Same vocabulary generate_response() scans for; it keeps the result private, so the API re-derives it here.
-MOODS = ["warm", "curious", "annoyed", "calm", "tired", "teasing"]
 
 # What a companion-side happening does to her mood when no brain is involved.
 EVENT_MOODS = {
@@ -57,14 +57,6 @@ speaking = False
 # One persistent session, "solin", backed by core_ai/state/solin_state.json; others live only while the server runs.
 DEFAULT_SESSION = "solin"
 sessions = {}
-
-
-def mood_of(text):
-    low = (text or "").lower()
-    for word in MOODS:
-        if word in low:
-            return word
-    return "neutral"
 
 
 def session(session_id):
@@ -106,44 +98,23 @@ def broadcast(kind, data):
 
 # --- brains -------------------------------------------------------------------
 
-class OpenAIBrain:
-    name = "openai:gpt-4o-mini"
+from core_ai import brains  # noqa: E402
 
-    def __init__(self):
-        import openai
-        from core_ai import ai_logic
-        self.ai_logic = ai_logic
-        self.client = openai.OpenAI()
-        self.prompt = load_prompt()
-        self.mem = memory.load_memory()
-
-    def reply(self, text):
-        out = self.ai_logic.generate_response(text, self.mem, self.client, self.prompt)
-        self.mem.append({"user": text, "solin_visible": out["visible"], "solin_internal": out["internal"]})
-        memory.save_memory(self.mem)
-        return out["visible"], out["internal"], mood_of(out["internal"])
+brain = brains.make_brain()
 
 
-class OfflineBrain:
-    """No key, no model: enough to exercise the companion end to end."""
-    name = "offline"
-
-    def reply(self, text):
-        mood = mood_of(text)
-        visible = "[offline] My brain's not plugged in yet. Set a key in core_ai/.env and start me again."
-        return visible, "", mood
-
-
-def make_brain():
-    if os.environ.get("OPENAI_API_KEY"):
-        try:
-            return OpenAIBrain()
-        except Exception as error:  # noqa: BLE001
-            print(f"[companion_api] OpenAI brain unavailable: {error}", file=sys.stderr)
-    return OfflineBrain()
-
-
-brain = make_brain()
+def switch_brain(name):
+    """Swap the live brain. Returns the new brain or raises ValueError for a name that cannot run."""
+    global brain
+    config = brains.load_config()
+    options = brains.available(config)
+    if name not in options:
+        raise ValueError("unknown brain " + name)
+    if not options[name]["ok"]:
+        raise ValueError(f"{name} cannot run: {options[name]['why']}")
+    brain = brains.make_brain(name, config)
+    broadcast("brain", {"brain": brain.name})
+    return brain
 
 
 # --- guards -------------------------------------------------------------------
@@ -162,6 +133,21 @@ def refuse_browsers():
 @app.get("/health")
 def health():
     return jsonify({"ok": True, "brain": brain.name, "version": VERSION})
+
+
+@app.get("/brains")
+def list_brains():
+    return jsonify({"current": brain.name, "brains": brains.available()})
+
+
+@app.post("/brain")
+def set_brain():
+    data = request.get_json(silent=True) or {}
+    try:
+        chosen = switch_brain((data.get("name") or "").strip())
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    return jsonify({"brain": chosen.name})
 
 
 @app.get("/state")

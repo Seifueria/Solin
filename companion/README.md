@@ -39,7 +39,9 @@ starts it itself from the repo root with `python3 -m server.companion_api`
 | GET /state | current mood, trust, session, brain name |
 | POST /chat `{session_id, text, speak}` | `{visible, internal, mood, trust, audio, error}` |
 | POST /event `{session_id, kind}` | companion happenings: poked, petted, dragged, ignored, greeted |
-| GET /events | server-sent events: mood, reply, speaking |
+| GET /events | server-sent events: mood, reply, speaking, brain |
+| GET /brains | configured brains, which can run, the current one |
+| POST /brain `{name}` | switch the live brain |
 
 Mood changes arriving on `/events` shape her idle: breath and tilt pace, and
 how often she blinks (see `src/Solin/MoodState.cs`).
