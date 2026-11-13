@@ -26,15 +26,23 @@ count and frames per second are declared in code, not in the file. Mirrored
 poses are separate files with a `_flipped` suffix. Placeholder strips from the
 base follow this already, so Solin's own art just has to match it.
 
-## Backend protocol (planned)
+## Backend protocol
 
-The companion talks to `server/companion_api.py` on 127.0.0.1 only.
+The companion talks to `server/companion_api.py` on 127.0.0.1 only
+(port 47831, or `SOLIN_COMPANION_PORT`). If nothing answers, the companion
+starts it itself from the repo root with `python3 -m server.companion_api`
+(or `SOLIN_PYTHON`, or `venv/bin/python` when present).
 
 | call | purpose |
 |---|---|
-| POST /chat `{session_id, text}` | returns `{visible, internal, mood, audio}` |
+| GET /health | `{ok, brain, version}` |
 | GET /state | current mood, trust, session, brain name |
-| GET /events | server-sent events: mood changes, speaking start/stop, mouth amplitude |
+| POST /chat `{session_id, text, speak}` | `{visible, internal, mood, trust, audio, error}` |
+| POST /event `{session_id, kind}` | companion happenings: poked, petted, dragged, ignored, greeted |
+| GET /events | server-sent events: mood, reply, speaking |
+
+Mood changes arriving on `/events` shape her idle: breath and tilt pace, and
+how often she blinks (see `src/Solin/MoodState.cs`).
 
 ## Build and run on macOS
 

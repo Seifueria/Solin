@@ -39,6 +39,12 @@ namespace Solin.Companion.Upstream
         private bool pressed, dragging;
         private PixelPoint downAt, grab;
 
+        // How her idle moves right now. Solin's MoodState sets it from the backend's mood; the defaults are the base's numbers.
+        internal double BreathRate = 1.75, BreathDepth = 2.2, TiltRate = 0.95, TiltDepth = 0.65, BlinkChance = 0.55;
+        // Fired for a plain click on her art and when a drag ends, for Solin's own reactions.
+        internal Action Poked;
+        internal Action Dragged;
+
         internal SpriteWindow(double size = 240)
         {
             Title = "Solin";
@@ -99,15 +105,15 @@ namespace Solin.Companion.Upstream
                 {
                     idleCycle = cycle;
                     double roll = random.NextDouble();
-                    blinkWith = roll < 0.1 ? idleBlinkGlitch : roll < 0.55 ? idleBlink : null;
+                    blinkWith = roll < BlinkChance * 0.18 ? idleBlinkGlitch : roll < BlinkChance ? idleBlink : null;
                 }
             }
             int cell = index % clip.Count;
             Clip shown = clip;
             if (clip == idle && blinkWith != null && cell >= IdleBlinkFrom && cell < IdleBlinkFrom + blinkWith.Count) { shown = blinkWith; cell -= IdleBlinkFrom; }
             bool settled = !dragging;
-            body.Breathe = settled ? Math.Sin(now * 1.75) * 2.2 : 0;
-            body.Tilt = settled ? Math.Sin(now * 0.95) * 0.65 : 0;
+            body.Breathe = settled ? Math.Sin(now * BreathRate) * BreathDepth : 0;
+            body.Tilt = settled ? Math.Sin(now * TiltRate) * TiltDepth : 0;
             body.Shown = shown;
             body.Cell = cell;
             body.InvalidateVisual();
@@ -141,7 +147,7 @@ namespace Solin.Companion.Upstream
             if (!pressed || e.InitialPressMouseButton != MouseButton.Left) return;
             pressed = false;
             e.Pointer.Capture(null);
-            if (!dragging) Clicked();
+            if (!dragging) Poked?.Invoke(); else Dragged?.Invoke();
             dragging = false;
         }
 
@@ -150,8 +156,5 @@ namespace Solin.Companion.Upstream
             base.OnPointerCaptureLost(e);
             pressed = dragging = false;
         }
-
-        // A plain click on her. Nothing yet; Solin's own reactions hook in here later.
-        private void Clicked() { }
     }
 }
