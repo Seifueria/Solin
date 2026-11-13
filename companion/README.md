@@ -71,6 +71,8 @@ how often she blinks (see `src/Solin/MoodState.cs`).
 | throw (let go mid-swing) | flies, bounces off the screen edges, lands; the third throw in a row she takes personally |
 | double-click | opens a typing box under her feet. Enter sends, Escape closes |
 | reply arrives | types into a bubble above her head, mouth moving, then fades |
+| you leave for 8 minutes | she falls asleep on her feet; back after 20 she wakes with a line |
+| two hours with no 5-minute pause | she asks you to take a break |
 
 ## Her voice
 

@@ -31,6 +31,12 @@ namespace Solin.Companion.Upstream
         private readonly Clip glitch = new Clip("glitch", 10, 9, 1.11);
         // Hanging from the cursor while held, and tumbling while thrown.
         private readonly Clip dangle = new Clip("dangle", 24, 10, 1.11);
+        // Asleep on her feet while you are away, and the stretch when you come back.
+        private readonly Clip sleep = new Clip("sleep", 16, 6, 1.11);
+        private readonly Clip wake = new Clip("wake", 13, 15, 1.11);
+        internal bool Asleep { get { return clip == sleep; } }
+        internal void Sleep() { if (!flying && !pressed && clip != glitch) Play(sleep); }
+        internal void Wake() { if (clip == sleep) Play(wake); }
         // Flight after a throw, in screen pixels per second; Solin's addition over the base's drag.
         private bool flying;
         private double flyX, flyY, flyVx, flyVy;
@@ -208,6 +214,7 @@ namespace Solin.Companion.Upstream
                 }
                 index = 0;
             }
+            if (clip == wake && index >= wake.Count) { Play(idle); index = 0; }
             if (clip == idle)
             {
                 int cycle = index / clip.Count;
@@ -222,8 +229,22 @@ namespace Solin.Companion.Upstream
             Clip shown = clip;
             if (clip == idle && blinkWith != null && cell >= IdleBlinkFrom && cell < IdleBlinkFrom + blinkWith.Count) { shown = blinkWith; cell -= IdleBlinkFrom; }
             if ((pressed || flying) && clip != dangle && clip != glitch) Play(dangle);
+            if (clip == sleep && pressed) Play(wake);
             if (!pressed && !flying && clip == dangle) Play(idle);
             bool settled = !dragging && !flying && clip != glitch;
+            // Asleep she only breathes, slow and deep.
+            if (clip == sleep)
+            {
+                body.Breathe = Math.Sin(now * 1.1) * 3.5 * (body.Size / 240);
+                body.Tilt = 0;
+                body.Dissolve = 0;
+                body.Shown = sleep;
+                body.Cell = cell;
+                body.Mouth = idleMouth;
+                body.Talking = -1;
+                body.InvalidateVisual();
+                return;
+            }
             // Out: she dissolves over the glitch. In: she reassembles over it.
             double progress = clip == glitch ? Math.Clamp((now - clipStart) * glitch.Fps / glitch.Count, 0, 1) : 0;
             body.Dissolve = clip != glitch ? 0 : teleportLanding ? 1 - progress : progress;

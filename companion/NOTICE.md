@@ -39,6 +39,8 @@ this notice. The list below is kept current.
 | assets/sprites/idle_mouth.png | same | placeholder |
 | assets/sprites/glitch.png | same | placeholder, used for teleports |
 | assets/sprites/dangle.png | same | placeholder, held and flying |
+| assets/sprites/sleep.png | same | placeholder, asleep while you are away |
+| assets/sprites/wake.png | same | placeholder, waking when you return |
 
 ## Ideas described, no code copied
 

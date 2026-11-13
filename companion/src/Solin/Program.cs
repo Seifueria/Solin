@@ -38,6 +38,21 @@ namespace Solin.Companion
         private bool thinking;
         // Throws in a row; the third one she takes personally.
         private int throws;
+        // Presence: how long you have been away, how long you have worked without a real pause.
+        private readonly DispatcherTimer presence = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        private double activeSeconds;
+        private DateTime? sleptAt;
+        private const double SleepAfter = 8 * 60, PauseIs = 5 * 60, BreakAfter = 2 * 3600, LongAway = 20 * 60;
+        private static readonly string[] WakeLines =
+        {
+            "[soft yawn] oh. you're back.", "[blink] mm. was i out long?", "[stretch] hey. missed you a bit. don't make it weird.",
+        };
+        private static readonly string[] BreakLines =
+        {
+            "[calm] you've been at it two hours straight. stretch, drink some water. i'll be here.",
+            "[soft] two hours without a break. go stand up for a minute, yeah?",
+        };
+        private readonly Random pick = new Random();
         private string agentState = "idle";
         // While Claude is waiting on you she keeps bristling until the state moves on.
         private readonly DispatcherTimer bristle = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
@@ -106,10 +121,39 @@ namespace Solin.Companion
             bristle.Tick += delegate { if (agentState == "needs_you") sprite.React("jolt"); else bristle.Stop(); };
             backend.AgentChanged += delegate(string state, string detail) { Dispatcher.UIThread.Post(() => Agent(state, detail)); };
             typer.Sent += delegate(string text) { _ = Ask(text); };
+            presence.Tick += delegate { Presence(); };
             sprite.Opened += async delegate
             {
+                presence.Start();
                 if (await launcher.EnsureRunning(backend)) backend.Listen();
             };
+        }
+
+        // Once a second: sleep when you have been away a while, wake when you return, nudge a break after two hours of no pauses.
+        private void Presence()
+        {
+            double? idle = Mouse.IdleSeconds();
+            if (!idle.HasValue) return;
+            if (idle.Value >= PauseIs) activeSeconds = 0; else activeSeconds += 1;
+            if (!sprite.Asleep && idle.Value >= SleepAfter && agentState != "working" && agentState != "needs_you")
+            {
+                sprite.Sleep();
+                sleptAt = DateTime.Now;
+                _ = backend.Event("ignored");
+            }
+            else if (sprite.Asleep && idle.Value < 2)
+            {
+                sprite.Wake();
+                bool longAway = sleptAt.HasValue && (DateTime.Now - sleptAt.Value).TotalSeconds > LongAway;
+                sleptAt = null;
+                _ = backend.Event("greeted");
+                if (longAway) bubble.Say(WakeLines[pick.Next(WakeLines.Length)], "warm");
+            }
+            if (activeSeconds >= BreakAfter && !bubble.IsVisible && agentState != "working" && !sprite.Asleep)
+            {
+                activeSeconds = 0;
+                bubble.Say(BreakLines[pick.Next(BreakLines.Length)], "calm");
+            }
         }
 
         // What the coding agent is doing, from Claude Code hooks through the backend.
