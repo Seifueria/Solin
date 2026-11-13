@@ -74,6 +74,13 @@ how often she blinks (see `src/Solin/MoodState.cs`).
 | you leave for 8 minutes | she falls asleep on her feet; back after 20 she wakes with a line |
 | two hours with no 5-minute pause | she asks you to take a break |
 
+## Sounds
+
+Small cues made in code, no files: a blip when poked, a zap on teleports,
+a chime when Claude finishes, a buzz on errors, a tick when a bubble opens,
+a soft note on waking. `SOLIN_SFX=0.3 dotnet run` sets the level;
+`SOLIN_SFX=off` silences them.
+
 ## Her voice
 
 Replies are spoken through ElevenLabs when `data/config.json` says so:

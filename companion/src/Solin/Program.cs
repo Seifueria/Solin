@@ -33,6 +33,7 @@ namespace Solin.Companion
         private Bubble bubble;
         private Pill pill;
         private readonly Voice voice = new Voice();
+        private readonly Sfx sfx = new Sfx();
         // The bubble typing and her voice playing each move her mouth; it stops when neither is on.
         private int mouthHolds;
         private bool thinking;
@@ -103,7 +104,7 @@ namespace Solin.Companion
                     if (audio != null) _ = voice.Play(audio);
                 });
             };
-            sprite.Poked += delegate { sprite.React("dip"); _ = backend.Event("poked"); };
+            sprite.Poked += delegate { sprite.React("dip"); sfx.Play("blip"); _ = backend.Event("poked"); };
             sprite.Dragged += delegate { _ = backend.Event("dragged"); };
             sprite.Thrown += delegate { throws++; _ = backend.Event(throws >= 3 ? "thrown" : "dragged"); };
             sprite.FlightLanded += delegate { sprite.React(throws >= 3 ? "jolt" : "dip"); if (throws >= 3) throws = 0; };
@@ -113,7 +114,7 @@ namespace Solin.Companion
                 typer.Open(new PixelPoint(sprite.Position.X + Px(sprite.Width / 2) - Px(160), sprite.Position.Y + Px(sprite.Height) - Px(30)));
             };
             bubble.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
-            bubble.Speaking += delegate(bool on) { Mouth(on); };
+            bubble.Speaking += delegate(bool on) { Mouth(on); if (on) sfx.Play("tick"); };
             voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => Mouth(on)); };
             bubble.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             pill.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.04)));
@@ -144,6 +145,7 @@ namespace Solin.Companion
             else if (sprite.Asleep && idle.Value < 2)
             {
                 sprite.Wake();
+                sfx.Play("soft");
                 bool longAway = sleptAt.HasValue && (DateTime.Now - sleptAt.Value).TotalSeconds > LongAway;
                 sleptAt = null;
                 _ = backend.Event("greeted");
@@ -173,7 +175,7 @@ namespace Solin.Companion
                     {
                         // Next to the cursor, so the question is where you are looking.
                         PixelPoint? at = Mouse.Position(sprite.Screens.Primary?.Scaling ?? 1);
-                        if (at.HasValue) sprite.Teleport(sprite.StandingAt(new PixelPoint(at.Value.X + Px(90), at.Value.Y + Px(40))));
+                        if (at.HasValue) { sfx.Play("zap"); sprite.Teleport(sprite.StandingAt(new PixelPoint(at.Value.X + Px(90), at.Value.Y + Px(40)))); }
                         sprite.React("jolt");
                         bristle.Start();
                     }
@@ -183,17 +185,20 @@ namespace Solin.Companion
                     pill.Say("done", 8);
                     if (fresh)
                     {
+                        sfx.Play("chime");
                         // Centre of the screen for the victory lap; the dip on landing is her bow.
                         Screen screen = sprite.Screens.Primary;
                         if (screen != null)
                         {
                             PixelRect area = screen.WorkingArea;
+                            sfx.Play("zap");
                             sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
                         }
                         if (!string.IsNullOrEmpty(detail) && detail != "done") bubble.Say(detail, mood.Mood);
                     }
                     break;
                 case "error":
+                    sfx.Play("buzz");
                     pill.Say(string.IsNullOrEmpty(detail) ? "something broke" : detail, 8);
                     sprite.React("shake");
                     break;
