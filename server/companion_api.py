@@ -49,6 +49,7 @@ EVENT_MOODS = {
     "dragged": "annoyed",
     "ignored": "tired",
     "greeted": "warm",
+    "thrown": "annoyed",
 }
 
 app = Flask(__name__)
@@ -109,6 +110,7 @@ def broadcast(kind, data):
 # --- brains -------------------------------------------------------------------
 
 from core_ai import brains  # noqa: E402
+from core_ai.brains import bond  # noqa: E402
 
 brain = brains.make_brain()
 
@@ -169,7 +171,7 @@ def set_brain():
 @app.get("/state")
 def state():
     sid, s = session(request.args.get("session_id"))
-    return jsonify({"session_id": sid, "mood": s["mood"], "trust": s["trust"], "brain": brain.name, "speaking": speaking, "agent": agent})
+    return jsonify({"session_id": sid, "mood": s["mood"], "trust": s["trust"], "brain": brain.name, "speaking": speaking, "agent": agent, "bond": bond.snapshot()})
 
 
 @app.post("/chat")
@@ -181,8 +183,10 @@ def chat():
         return jsonify({"error": "text required"}), 400
     sid, current = session(data.get("session_id"))
     error = None
+    context = bond.prompt_lines()
     try:
-        visible, internal, mood = brain.reply(text)
+        visible, internal, mood = brain.reply(text, context)
+        bond.note("chat")
     except Exception as failure:  # noqa: BLE001  a dead key or an empty account must not take her down
         error = f"{type(failure).__name__}: {failure}"
         print(f"[companion_api] brain failed: {error}", file=sys.stderr)
@@ -215,9 +219,10 @@ def event():
     if kind not in EVENT_MOODS:
         return jsonify({"error": "unknown kind", "known": sorted(EVENT_MOODS)}), 400
     sid, s = session(data.get("session_id"))
-    nudge = -0.02 if kind == "dragged" else 0.005
+    nudge = -0.02 if kind in ("dragged", "thrown") else 0.005
     s = set_mood(sid, EVENT_MOODS[kind], trust=s["trust"] + nudge)
-    return jsonify({"mood": s["mood"], "trust": s["trust"]})
+    snap = bond.note(kind)
+    return jsonify({"mood": s["mood"], "trust": s["trust"], "bond": snap})
 
 
 def first_line(text, limit=140):
@@ -278,6 +283,8 @@ def hook():
         agent.update({"state": state, "detail": detail, "session": event.get("session_id")})
     if changed:
         broadcast("agent", dict(agent))
+        if state in ("working", "needs_you", "done", "error"):
+            bond.note("agent_" + state)
     return jsonify(agent)
 
 

@@ -14,7 +14,7 @@ class OfflineBrain:
     name = "offline"
     model = None
 
-    def reply(self, text):
+    def reply(self, text, context=""):
         return "[offline] My brain's not plugged in yet. Set a key in core_ai/.env or start Ollama, then switch me.", "", persona.mood_of(text)
 
 
@@ -27,11 +27,13 @@ class SolinBrain:
         self.preprompt = preprompt if preprompt is not None else load_prompt()
         self.mem = mem if mem is not None else memory.load_memory()
 
-    def reply(self, text):
+    def reply(self, text, context=""):
         system, msgs = persona.internal_messages(self.mem, text)
+        if context:
+            system += "\n" + context
         internal = self.provider.complete(system, msgs, max_tokens=120)
         mood = persona.mood_of(internal)
-        system, msgs = persona.visible_messages(self.preprompt, self.mem, text, internal, mood, small=self.small)
+        system, msgs = persona.visible_messages(self.preprompt, self.mem, text, internal, mood, small=self.small, context=context)
         visible = persona.tidy(self.provider.complete(system, msgs, max_tokens=400))
         # Personality-based internal fragment bleed, as in core_ai/ai_logic.py.
         bleed = 0.2 if mood in ("teasing", "annoyed") else 0.05 if mood in ("calm", "warm") else 0.1

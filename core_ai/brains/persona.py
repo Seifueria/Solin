@@ -46,14 +46,16 @@ def internal_messages(mem, user_input):
     return system, history(mem) + [{"role": "user", "content": user_input}]
 
 
-def visible_messages(preprompt, mem, user_input, internal, mood, small=False):
+def visible_messages(preprompt, mem, user_input, internal, mood, small=False, context=""):
+    """context: extra lines about the bond and what just happened, from bond.prompt_lines()."""
+    extra = ("\n" + context) if context else ""
     if not small:
-        system = f"{preprompt}\n[Internal context: {internal}]\nSolin currently feels: {mood}\n\n{STYLE}"
+        system = f"{preprompt}\n[Internal context: {internal}]\nSolin currently feels: {mood}{extra}\n\n{STYLE}"
         return system, history(mem) + [{"role": "user", "content": user_input}]
     # Small-model layout.
     system = f"CHARACTER SHEET\n{preprompt}\n\nSTYLE\n{STYLE}"
     ack = {"role": "assistant", "content": "[calm] Got it. I'm Solin. I'll stay in character and keep it short."}
-    reminder = f"\n\n(Stay as Solin. You feel {mood}. Private thought: {internal} Reply in one to three short lines.)"
+    reminder = f"\n\n(Stay as Solin. You feel {mood}. {context} Private thought: {internal} Reply in one to three short lines.)"
     msgs = [{"role": "user", "content": "Read your character sheet and acknowledge in character."}, ack]
     msgs += history(mem, limit=12)
     msgs.append({"role": "user", "content": user_input + reminder})
