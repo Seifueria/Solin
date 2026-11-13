@@ -71,7 +71,7 @@ class Anthropic(Provider):
 class ClaudeCli(Provider):
     """Claude Code in print mode, which runs on a Claude subscription instead of an API key.
 
-    Untested until a `claude` command is installed. Runs in an empty folder so no project instructions leak into Solin.
+    Runs in an empty folder so no project instructions leak into Solin.
     """
     name = "claude-cli"
 
@@ -84,15 +84,21 @@ class ClaudeCli(Provider):
         for m in messages[:-1]:
             transcript.append(("User: " if m["role"] == "user" else "Solin: ") + m["content"])
         prompt = "\n".join(transcript + ["User: " + messages[-1]["content"], "Solin:"])
-        args = [self.path, "-p", "--output-format", "json", "--system-prompt", system, "--model", self.model, "--max-turns", "1"]
+        # Bare mode, no tools, no saved session and no user settings: Solin's line in, Claude's line out, nothing else.
+        args = [self.path, "-p", "--output-format", "json", "--system-prompt", system, "--model", self.model,
+                "--bare", "--tools", "", "--no-session-persistence", "--setting-sources", ""]
         with tempfile.TemporaryDirectory() as empty:
             done = subprocess.run(args, input=prompt, capture_output=True, text=True, timeout=180, cwd=empty)
         if done.returncode != 0:
             raise RuntimeError("claude exited %d: %s" % (done.returncode, done.stderr.strip()[:300]))
         try:
-            return json.loads(done.stdout).get("result", "").strip()
+            out = json.loads(done.stdout)
         except ValueError:
             return done.stdout.strip()
+        # Claude Code reports a failed call, like an expired login, inside the JSON with exit code 0.
+        if out.get("is_error"):
+            raise RuntimeError("claude: " + str(out.get("result", "unknown error"))[:300])
+        return str(out.get("result", "")).strip()
 
 
 def make_provider(name, settings):
