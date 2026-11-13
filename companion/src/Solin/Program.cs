@@ -77,7 +77,15 @@ namespace Solin.Companion
             mood.MoodChanged += delegate(string name) { sprite.React(MoodState.ReactionFor(name)); };
             backend.MoodChanged += delegate(string name, double trust) { Dispatcher.UIThread.Post(() => mood.Set(name, trust)); };
             // Replies from anywhere (the typing box, curl, another client) show in her bubble.
-            backend.Replied += delegate(string visible) { Dispatcher.UIThread.Post(() => { if (!thinking) bubble.Say(visible, mood.Mood); }); };
+            backend.Replied += delegate(string visible, string replyMood, string audio)
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (thinking) return;
+                    bubble.Say(visible, replyMood ?? mood.Mood);
+                    if (audio != null) _ = voice.Play(audio);
+                });
+            };
             sprite.Poked += delegate { sprite.React("dip"); _ = backend.Event("poked"); };
             sprite.Dragged += delegate { _ = backend.Event("dragged"); };
             sprite.TalkAsked += delegate

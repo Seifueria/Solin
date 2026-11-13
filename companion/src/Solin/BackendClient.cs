@@ -19,7 +19,8 @@ namespace Solin.Companion
         private CancellationTokenSource listening;
 
         internal event Action<string, double> MoodChanged;
-        internal event Action<string> Replied;
+        // visible, mood, and an audio path when the backend already spoke the line.
+        internal event Action<string, string, string> Replied;
         internal event Action<bool> Speaking;
         internal event Action<bool> Connected;
         internal event Action<string, string> AgentChanged;
@@ -125,7 +126,11 @@ namespace Solin.Companion
                     switch (kind)
                     {
                         case "mood": MoodChanged?.Invoke(root.GetProperty("mood").GetString(), root.GetProperty("trust").GetDouble()); break;
-                        case "reply": Replied?.Invoke(root.GetProperty("visible").GetString()); break;
+                        case "reply":
+                            Replied?.Invoke(root.GetProperty("visible").GetString(),
+                                root.TryGetProperty("mood", out JsonElement m) ? m.GetString() : null,
+                                root.TryGetProperty("audio", out JsonElement au) && au.ValueKind == JsonValueKind.String ? au.GetString() : null);
+                            break;
                         case "speaking": Speaking?.Invoke(root.GetProperty("on").GetBoolean()); break;
                         case "agent": AgentChanged?.Invoke(root.GetProperty("state").GetString(), root.TryGetProperty("detail", out JsonElement d) ? d.GetString() : ""); break;
                     }

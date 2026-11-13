@@ -12,6 +12,7 @@ Solin-owned. Wraps the existing core_ai modules without changing them.
     GET  /events          server-sent events: mood, reply, speaking, brain
     GET  /brains          every configured brain, whether it can run, and the current one
     POST /hook            a trimmed Claude Code hook event from hooks/solin_hook.py
+    POST /say             {"text", "mood", "speak"}  a line of hers without the brain: shown, mood set, spoken if asked
     POST /brain           {"name": "ollama"}  switch the live brain
 
 Run from the repo root:  python3 -m server.companion_api
@@ -210,6 +211,36 @@ def chat():
             broadcast("speaking", {"on": False})
     broadcast("reply", {"session_id": sid, "visible": visible, "mood": s["mood"]})
     return jsonify({"visible": visible, "internal": internal, "mood": s["mood"], "trust": s["trust"], "audio": audio, "error": error})
+
+
+@app.post("/say")
+def say():
+    """A scripted line: the companion shows it exactly as if she had thought of it. Demos, tests and other tools use this."""
+    global speaking
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "text required"}), 400
+    sid, current = session(data.get("session_id"))
+    mood = data.get("mood") or current["mood"]
+    s = set_mood(sid, mood)
+    audio = None
+    speak = data.get("speak")
+    if speak is None:
+        speak = voice_default()
+    if speak:
+        try:
+            from core_ai import speech
+            speaking = True
+            broadcast("speaking", {"on": True})
+            audio, _fresh = speech.speak(text)
+        except Exception as failure:  # noqa: BLE001
+            print(f"[companion_api] voice: {failure}", file=sys.stderr)
+        finally:
+            speaking = False
+            broadcast("speaking", {"on": False})
+    broadcast("reply", {"session_id": sid, "visible": text, "mood": s["mood"], "audio": audio})
+    return jsonify({"visible": text, "mood": s["mood"], "audio": audio})
 
 
 @app.post("/event")
