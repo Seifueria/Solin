@@ -71,6 +71,20 @@ how often she blinks (see `src/Solin/MoodState.cs`).
 | double-click | opens a typing box under her feet. Enter sends, Escape closes |
 | reply arrives | types into a bubble above her head, mouth moving, then fades |
 
+## Her voice
+
+Replies are spoken through ElevenLabs when `data/config.json` says so:
+
+```json
+{ "voice": { "speak": true, "voice_id": "cgSgspJ2msm6clMCkdW9", "model_id": "eleven_v3" } }
+```
+
+The backend makes the MP3 (`core_ai/speech.py`, cached under
+`data/audio_file/`) and the companion plays it with afplay, moving her mouth
+meanwhile. The default voice is a premade one; the cloned voice in
+`core_ai/voice.py` needs a paid ElevenLabs plan, so put its id here once the
+plan allows it.
+
 ## Watching Claude Code
 
 With the hook installed she acts out what Claude Code is doing. A short pill

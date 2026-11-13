@@ -32,6 +32,9 @@ namespace Solin.Companion
         private Typer typer;
         private Bubble bubble;
         private Pill pill;
+        private readonly Voice voice = new Voice();
+        // The bubble typing and her voice playing each move her mouth; it stops when neither is on.
+        private int mouthHolds;
         private bool thinking;
         private string agentState = "idle";
         // While Claude is waiting on you she keeps bristling until the state moves on.
@@ -52,7 +55,7 @@ namespace Solin.Companion
                 pill = new Pill();
                 desktop.MainWindow = sprite;
                 Wire();
-                desktop.Exit += delegate { backend.Dispose(); launcher.Dispose(); };
+                desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
             }
             base.OnFrameworkInitializationCompleted();
         }
@@ -83,7 +86,8 @@ namespace Solin.Companion
                 typer.Open(new PixelPoint(sprite.Position.X + Px(sprite.Width / 2) - Px(160), sprite.Position.Y + Px(sprite.Height) - Px(30)));
             };
             bubble.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
-            bubble.Speaking += delegate(bool on) { sprite.Talking = on; };
+            bubble.Speaking += delegate(bool on) { Mouth(on); };
+            voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => Mouth(on)); };
             bubble.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             pill.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.04)));
             sprite.PositionChanged += delegate { bubble.Reposition(); pill.Reposition(); };
@@ -144,16 +148,23 @@ namespace Solin.Companion
             }
         }
 
+        private void Mouth(bool on)
+        {
+            mouthHolds = Math.Max(0, mouthHolds + (on ? 1 : -1));
+            sprite.Talking = mouthHolds > 0;
+        }
+
         private async Task Ask(string text)
         {
             thinking = true;
             sprite.React("dip");
             try
             {
-                (string visible, string replyMood) = await backend.Chat(text);
+                (string visible, string replyMood, string audio) = await backend.Chat(text);
                 thinking = false;
                 mood.Set(replyMood, mood.Trust);
                 bubble.Say(visible, replyMood);
+                if (audio != null) _ = voice.Play(audio);
             }
             catch (Exception)
             {

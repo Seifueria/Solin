@@ -4,8 +4,9 @@ Solin-owned. Wraps the existing core_ai modules without changing them.
 
     GET  /health          -> {"ok": true, "brain": "...", "version": "..."}
     GET  /state           -> {"session_id", "mood", "trust", "brain", "speaking"}
-    POST /chat            {"session_id", "text", "speak": false}
-                          -> {"visible", "internal", "mood", "trust", "audio"}
+    POST /chat            {"session_id", "text", "speak": true}   speak defaults to config voice.speak
+                          -> {"visible", "internal", "mood", "trust", "audio", "error"}
+                             audio is an MP3 path on this machine for the companion to play, or null
     POST /event           {"session_id", "kind"}   companion-side happenings, e.g. "poked"
                           -> {"mood", "trust"}
     GET  /events          server-sent events: mood, reply, speaking, brain
@@ -126,6 +127,12 @@ def switch_brain(name):
     return brain
 
 
+def voice_default():
+    """Whether replies are spoken when the caller does not say: data/config.json {"voice": {"speak": true}}, else off."""
+    from core_ai import speech
+    return bool(speech.settings().get("speak", False))
+
+
 # --- guards -------------------------------------------------------------------
 
 @app.before_request
@@ -182,14 +189,18 @@ def chat():
         visible, internal, mood = "[offline] My brain just dropped the call. Check the key and the account.", "", current["mood"]
     s = set_mood(sid, mood, trust=current["trust"] + (0.0 if error else 0.01))
     audio = None
-    if data.get("speak") and os.environ.get("ELEVENLABS_API_KEY"):
+    speak = data.get("speak")
+    if speak is None:
+        speak = voice_default()
+    if speak and not error:
         try:
-            from core_ai import voice
+            from core_ai import speech
             speaking = True
             broadcast("speaking", {"on": True})
-            audio = voice.generate_audio(visible)
-        except Exception as error:  # noqa: BLE001
-            print(f"[companion_api] voice failed: {error}", file=sys.stderr)
+            audio, _fresh = speech.speak(visible)
+        except Exception as failure:  # noqa: BLE001
+            error = f"voice: {failure}"
+            print(f"[companion_api] {error}", file=sys.stderr)
         finally:
             speaking = False
             broadcast("speaking", {"on": False})

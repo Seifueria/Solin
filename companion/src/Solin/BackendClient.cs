@@ -47,11 +47,18 @@ namespace Solin.Companion
                 return (doc.RootElement.GetProperty("mood").GetString(), doc.RootElement.GetProperty("trust").GetDouble());
         }
 
-        internal async Task<(string visible, string mood)> Chat(string text, bool speak = false)
+        // speak null leaves it to the backend's configured default.
+        internal async Task<(string visible, string mood, string audio)> Chat(string text, bool? speak = null)
         {
-            string json = await Post("/chat", new { session_id = sessionId, text, speak });
+            string json = speak.HasValue
+                ? await Post("/chat", new { session_id = sessionId, text, speak = speak.Value })
+                : await Post("/chat", new { session_id = sessionId, text });
             using (JsonDocument doc = JsonDocument.Parse(json))
-                return (doc.RootElement.GetProperty("visible").GetString(), doc.RootElement.GetProperty("mood").GetString());
+            {
+                JsonElement root = doc.RootElement;
+                string audio = root.TryGetProperty("audio", out JsonElement a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
+                return (root.GetProperty("visible").GetString(), root.GetProperty("mood").GetString(), audio);
+            }
         }
 
         internal async Task Event(string kind)
