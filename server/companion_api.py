@@ -10,6 +10,7 @@ Solin-owned. Wraps the existing core_ai modules without changing them.
                           -> {"mood", "trust"}
     GET  /events          server-sent events: mood, reply, speaking, brain
     GET  /brains          every configured brain, whether it can run, and the current one
+    POST /hook            a trimmed Claude Code hook event from hooks/solin_hook.py
     POST /brain           {"name": "ollama"}  switch the live brain
 
 Run from the repo root:  python3 -m server.companion_api
@@ -53,6 +54,10 @@ app = Flask(__name__)
 lock = threading.Lock()
 subscribers = []  # list[queue.Queue]
 speaking = False
+# What the coding agent is up to, from Claude Code hooks: idle, working, needs_you, done, error.
+agent = {"state": "idle", "detail": "", "session": None}
+# What the coding agent is up to, from Claude Code hooks: idle, working, needs_you, done, error.
+agent = {"state": "idle", "detail": "", "session": None}
 
 # One persistent session, "solin", backed by core_ai/state/solin_state.json; others live only while the server runs.
 DEFAULT_SESSION = "solin"
@@ -153,7 +158,7 @@ def set_brain():
 @app.get("/state")
 def state():
     sid, s = session(request.args.get("session_id"))
-    return jsonify({"session_id": sid, "mood": s["mood"], "trust": s["trust"], "brain": brain.name, "speaking": speaking})
+    return jsonify({"session_id": sid, "mood": s["mood"], "trust": s["trust"], "brain": brain.name, "speaking": speaking, "agent": agent})
 
 
 @app.post("/chat")
@@ -198,6 +203,50 @@ def event():
     nudge = -0.02 if kind == "dragged" else 0.005
     s = set_mood(sid, EVENT_MOODS[kind], trust=s["trust"] + nudge)
     return jsonify({"mood": s["mood"], "trust": s["trust"]})
+
+
+def agent_state_of(event):
+    """Map a Claude Code hook event to one of Solin's agent states, with a short line for her ticker."""
+    name = event.get("hook_event_name", "")
+    if name == "SessionStart":
+        return "working", "claude is here"
+    if name == "SessionEnd":
+        return "idle", ""
+    if name == "UserPromptSubmit":
+        return "working", "reading what you asked"
+    if name == "PreToolUse":
+        tool = event.get("tool_name") or "a tool"
+        gist = (event.get("gist") or "").strip()
+        return "working", (tool + (": " + gist if gist else "")).lower()[:80]
+    if name == "PostToolUse":
+        if event.get("error"):
+            return "error", str(event.get("error"))[:80]
+        return "working", "thinking"
+    if name == "Notification":
+        kind = event.get("notification_type") or ""
+        text = (event.get("message") or "").strip()[:80]
+        if kind in ("permission_prompt", "elicitation_dialog", "idle_prompt") or "permission" in text.lower() or "waiting" in text.lower():
+            return "needs_you", text or "claude needs you"
+        return "working", text or "thinking"
+    if name == "Stop":
+        if event.get("is_interrupt"):
+            return "idle", "stopped"
+        return "done", (event.get("last_assistant_message") or "done").strip()[:200]
+    return None, None
+
+
+@app.post("/hook")
+def hook():
+    event = request.get_json(silent=True) or {}
+    state, detail = agent_state_of(event)
+    if state is None:
+        return jsonify({"ignored": event.get("hook_event_name")})
+    with lock:
+        changed = state != agent["state"] or detail != agent["detail"]
+        agent.update({"state": state, "detail": detail, "session": event.get("session_id")})
+    if changed:
+        broadcast("agent", dict(agent))
+    return jsonify(agent)
 
 
 @app.get("/events")

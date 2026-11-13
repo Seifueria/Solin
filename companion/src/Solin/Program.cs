@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Themes.Fluent;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using Solin.Companion.Upstream;
 
@@ -30,7 +31,11 @@ namespace Solin.Companion
         private SpriteWindow sprite;
         private Typer typer;
         private Bubble bubble;
+        private Pill pill;
         private bool thinking;
+        private string agentState = "idle";
+        // While Claude is waiting on you she keeps bristling until the state moves on.
+        private readonly DispatcherTimer bristle = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
 
         public override void Initialize()
         {
@@ -44,6 +49,7 @@ namespace Solin.Companion
                 sprite = new SpriteWindow();
                 typer = new Typer();
                 bubble = new Bubble();
+                pill = new Pill();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { backend.Dispose(); launcher.Dispose(); };
@@ -78,11 +84,63 @@ namespace Solin.Companion
             };
             bubble.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
             bubble.Speaking += delegate(bool on) { sprite.Talking = on; };
+            pill.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.04)));
+            sprite.PositionChanged += delegate { bubble.Reposition(); pill.Reposition(); };
+            bristle.Tick += delegate { if (agentState == "needs_you") sprite.React("jolt"); else bristle.Stop(); };
+            backend.AgentChanged += delegate(string state, string detail) { Dispatcher.UIThread.Post(() => Agent(state, detail)); };
             typer.Sent += delegate(string text) { _ = Ask(text); };
             sprite.Opened += async delegate
             {
                 if (await launcher.EnsureRunning(backend)) backend.Listen();
             };
+        }
+
+        // What the coding agent is doing, from Claude Code hooks through the backend.
+        private void Agent(string state, string detail)
+        {
+            bool fresh = state != agentState;
+            agentState = state;
+            switch (state)
+            {
+                case "working":
+                    pill.Say(string.IsNullOrEmpty(detail) ? "claude is working" : detail);
+                    if (fresh) sprite.React("dip");
+                    break;
+                case "needs_you":
+                    pill.Say(string.IsNullOrEmpty(detail) ? "claude needs you" : detail);
+                    if (fresh)
+                    {
+                        // Next to the cursor, so the question is where you are looking.
+                        PixelPoint? at = Mouse.Position(sprite.Screens.Primary?.Scaling ?? 1);
+                        if (at.HasValue) sprite.Teleport(sprite.StandingAt(new PixelPoint(at.Value.X + Px(90), at.Value.Y + Px(40))));
+                        sprite.React("jolt");
+                        bristle.Start();
+                    }
+                    break;
+                case "done":
+                    bristle.Stop();
+                    pill.Say("done", 8);
+                    if (fresh)
+                    {
+                        // Centre of the screen for the victory lap; the dip on landing is her bow.
+                        Screen screen = sprite.Screens.Primary;
+                        if (screen != null)
+                        {
+                            PixelRect area = screen.WorkingArea;
+                            sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
+                        }
+                        if (!string.IsNullOrEmpty(detail) && detail != "done") bubble.Say(detail, mood.Mood);
+                    }
+                    break;
+                case "error":
+                    pill.Say(string.IsNullOrEmpty(detail) ? "something broke" : detail, 8);
+                    sprite.React("shake");
+                    break;
+                default:
+                    bristle.Stop();
+                    pill.Clear();
+                    break;
+            }
         }
 
         private async Task Ask(string text)

@@ -22,6 +22,7 @@ namespace Solin.Companion
         internal event Action<string> Replied;
         internal event Action<bool> Speaking;
         internal event Action<bool> Connected;
+        internal event Action<string, string> AgentChanged;
 
         internal BackendClient(int port = DefaultPort, string sessionId = "solin")
         {
@@ -119,6 +120,7 @@ namespace Solin.Companion
                         case "mood": MoodChanged?.Invoke(root.GetProperty("mood").GetString(), root.GetProperty("trust").GetDouble()); break;
                         case "reply": Replied?.Invoke(root.GetProperty("visible").GetString()); break;
                         case "speaking": Speaking?.Invoke(root.GetProperty("on").GetBoolean()); break;
+                        case "agent": AgentChanged?.Invoke(root.GetProperty("state").GetString(), root.TryGetProperty("detail", out JsonElement d) ? d.GetString() : ""); break;
                     }
                 }
             }

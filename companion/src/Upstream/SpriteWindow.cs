@@ -27,6 +27,12 @@ namespace Solin.Companion.Upstream
         private readonly Clip idleBlinkGlitch = new Clip("idle_blink_glitch", 8, 24, 1.11, IdleShiftX);
         // Her mouth for the idle face, five cells cycled while she talks, drawn over the frame where it sits in the cell.
         private readonly Clip idleMouth = new Clip("idle_mouth", 5, 12, 1.11, IdleShiftX);
+        // Ten cells of static, played once on the way out of a spot and once on the way in.
+        private readonly Clip glitch = new Clip("glitch", 10, 15, 1.11);
+        private PixelPoint? teleportTo;
+        private bool teleportLanding;
+        // Fired once she has landed after a teleport.
+        internal Action Landed;
 
         private readonly Body body = new Body();
         private readonly DispatcherTimer frames = new DispatcherTimer();
@@ -103,6 +109,29 @@ namespace Solin.Companion.Upstream
             return (int)Math.Round(points * (Screens.Primary?.Scaling ?? 1));
         }
 
+        // Glitches out, moves to target (her window's top-left, in screen pixels) and glitches back in.
+        internal void Teleport(PixelPoint target)
+        {
+            teleportTo = target;
+            teleportLanding = false;
+            Play(glitch);
+        }
+
+        // Her window's top-left that puts her feet at a screen point, kept inside that screen's work area.
+        internal PixelPoint StandingAt(PixelPoint feet)
+        {
+            Screen screen = Screens.ScreenFromPoint(feet) ?? Screens.Primary;
+            int wide = Px(Width), tall = Px(Height);
+            int x = feet.X - wide / 2, y = feet.Y - tall;
+            if (screen != null)
+            {
+                PixelRect area = screen.WorkingArea;
+                x = Math.Clamp(x, area.X, Math.Max(area.X, area.Right - wide));
+                y = Math.Clamp(y, area.Y, Math.Max(area.Y, area.Bottom - tall));
+            }
+            return new PixelPoint(x, y);
+        }
+
         private void Play(Clip next)
         {
             clip = next;
@@ -114,6 +143,22 @@ namespace Solin.Companion.Upstream
         private void Advance(double now)
         {
             int index = (int)((now - clipStart) * clip.Fps);
+            if (clip == glitch && index >= glitch.Count)
+            {
+                if (teleportTo.HasValue && !teleportLanding)
+                {
+                    Position = teleportTo.Value;
+                    teleportLanding = true;
+                    Play(glitch);
+                }
+                else
+                {
+                    teleportTo = null;
+                    Play(idle);
+                    Landed?.Invoke();
+                }
+                index = 0;
+            }
             if (clip == idle)
             {
                 int cycle = index / clip.Count;
@@ -127,7 +172,7 @@ namespace Solin.Companion.Upstream
             int cell = index % clip.Count;
             Clip shown = clip;
             if (clip == idle && blinkWith != null && cell >= IdleBlinkFrom && cell < IdleBlinkFrom + blinkWith.Count) { shown = blinkWith; cell -= IdleBlinkFrom; }
-            bool settled = !dragging;
+            bool settled = !dragging && clip != glitch;
             // Breath and tilt scale with her size so they read the same at every size.
             double scale = body.Size / 240;
             body.Breathe = settled ? Math.Sin(now * BreathRate) * BreathDepth * scale : 0;

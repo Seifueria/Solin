@@ -121,6 +121,9 @@ namespace Solin.Companion
             typing.Start();
         }
 
+        // Called when she moves, so the bubble stays over her head.
+        internal void Reposition() { if (IsVisible) Place(); }
+
         private void Place()
         {
             if (anchor == null) return;
@@ -128,6 +131,45 @@ namespace Solin.Companion
             double scale = Screens.Primary?.Scaling ?? 1;
             int wide = (int)(Bounds.Width * scale), tall = (int)(Bounds.Height * scale);
             Position = new PixelPoint(at.X - wide / 2, at.Y - tall);
+        }
+    }
+
+    // One short line over her head: what the coding agent is doing right now.
+    internal sealed class Pill : Window
+    {
+        private readonly TextBlock text = new TextBlock { Foreground = TalkLook.Ink, FontSize = 12 };
+        private readonly DispatcherTimer linger = new DispatcherTimer();
+        private Func<PixelPoint> anchor;
+
+        internal Pill()
+        {
+            TalkLook.Floating(this);
+            ShowActivated = false;
+            IsHitTestVisible = false;
+            Content = new Border { Background = TalkLook.Panel, BorderBrush = TalkLook.Edge, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 3), Child = text };
+            linger.Tick += delegate { linger.Stop(); Hide(); };
+        }
+
+        internal void Follow(Func<PixelPoint> anchorPoint) { anchor = anchorPoint; }
+
+        // Shows the line; with a lifetime it fades by itself, otherwise it stays until the next line or Clear().
+        internal void Say(string line, double seconds = 0)
+        {
+            text.Text = line;
+            linger.Stop();
+            Show();
+            Reposition();
+            if (seconds > 0) { linger.Interval = TimeSpan.FromSeconds(seconds); linger.Start(); }
+        }
+
+        internal void Clear() { linger.Stop(); Hide(); }
+
+        internal void Reposition()
+        {
+            if (anchor == null || !IsVisible) return;
+            PixelPoint at = anchor();
+            double scale = Screens.Primary?.Scaling ?? 1;
+            Position = new PixelPoint(at.X - (int)(Bounds.Width * scale) / 2, at.Y - (int)(Bounds.Height * scale));
         }
     }
 }

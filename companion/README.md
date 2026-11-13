@@ -71,6 +71,23 @@ how often she blinks (see `src/Solin/MoodState.cs`).
 | double-click | opens a typing box under her feet. Enter sends, Escape closes |
 | reply arrives | types into a bubble above her head, mouth moving, then fades |
 
+## Watching Claude Code
+
+With the hook installed she acts out what Claude Code is doing. A short pill
+over her head shows the current tool. When Claude needs you she teleports
+next to your cursor and bristles until you answer. When a turn finishes she
+teleports to the middle of the screen, bows, and reads out the last line.
+An error makes her shake it off.
+
+Install the hook once (it only adds Solin's lines to ~/.claude/settings.json):
+
+```
+python3 hooks/install_hook.py          # or --remove
+```
+
+The hook forwards event names, tool names and a one-line gist to the local
+API. File contents and tool output never leave the machine.
+
 ## Build and run on macOS
 
 Requires the .NET 10 SDK.
