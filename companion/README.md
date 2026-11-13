@@ -23,8 +23,24 @@ companion/
 
 A clip is one PNG holding its frames side by side at a fixed height. Frame
 count and frames per second are declared in code, not in the file. Mirrored
-poses are separate files with a `_flipped` suffix. Placeholder strips from the
-base follow this already, so Solin's own art just has to match it.
+poses are separate files with a `_flipped` suffix. Cells are cut to the
+figure's outline, not square, and a per-clip shift in code says where the
+cell's middle sits relative to the body's square.
+
+Current clips, with the exact sizes Solin's own art must match to drop in:
+
+| file | cells | fps | cell size (px) | strip size (px) | drawn over |
+|---|---|---|---|---|---|
+| idle.png | 60 | 24 | 116 x 384 | 6960 x 384 | the standing loop |
+| idle_blink.png | 8 | 24 | 116 x 384 | 928 x 384 | cells 25 to 32 of idle |
+| idle_blink_glitch.png | 8 | 24 | 116 x 384 | 928 x 384 | same cells, glitchy |
+| idle_mouth.png | 5 | 12 | 116 x 384 | 580 x 384 | the idle face, while talking |
+
+All four are transparent PNGs. The blink and mouth strips hold only the eye
+or mouth region on an otherwise clear cell, placed where it sits in the idle
+cell, so they lay over the idle frame. Alpha above 24 counts as solid for
+click hit testing. Height can change as long as every strip in a set agrees;
+the drawn size is set in code, not by the pixels.
 
 ## Backend protocol
 
