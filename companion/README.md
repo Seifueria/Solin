@@ -46,6 +46,15 @@ starts it itself from the repo root with `python3 -m server.companion_api`
 Mood changes arriving on `/events` shape her idle: breath and tilt pace, and
 how often she blinks (see `src/Solin/MoodState.cs`).
 
+## Using her
+
+| do | she |
+|---|---|
+| click | dips, tells the backend she was poked |
+| drag | moves; the backend hears she was dragged |
+| double-click | opens a typing box under her feet. Enter sends, Escape closes |
+| reply arrives | types into a bubble above her head, mouth moving, then fades |
+
 ## Build and run on macOS
 
 Requires the .NET 10 SDK.

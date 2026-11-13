@@ -25,6 +25,8 @@ namespace Solin.Companion.Upstream
         private readonly Clip idle = new Clip("idle", 60, 24, 1.11, IdleShiftX);
         private readonly Clip idleBlink = new Clip("idle_blink", 8, 24, 1.11, IdleShiftX);
         private readonly Clip idleBlinkGlitch = new Clip("idle_blink_glitch", 8, 24, 1.11, IdleShiftX);
+        // Her mouth for the idle face, five cells cycled while she talks, drawn over the frame where it sits in the cell.
+        private readonly Clip idleMouth = new Clip("idle_mouth", 5, 12, 1.11, IdleShiftX);
 
         private readonly Body body = new Body();
         private readonly DispatcherTimer frames = new DispatcherTimer();
@@ -44,6 +46,10 @@ namespace Solin.Companion.Upstream
         // Fired for a plain click on her art and when a drag ends, for Solin's own reactions.
         internal Action Poked;
         internal Action Dragged;
+        internal Action TalkAsked;
+        private int clickCount;
+        // While true the mouth cycles; Solin sets it for as long as a reply is being shown or spoken.
+        internal bool Talking;
 
         // A short, visible reaction laid over the idle: a dip of acknowledgement, a jolt of annoyance, or a shake of refusal.
         private string reaction;
@@ -132,6 +138,10 @@ namespace Solin.Companion.Upstream
             }
             body.Shown = shown;
             body.Cell = cell;
+            body.Mouth = idleMouth;
+            // The mouth only fits the plain idle face, not a blink; a bit of jitter keeps it from looking metronomic.
+            body.Talking = Talking && shown == idle ? (int)(now * idleMouth.Fps + Math.Sin(now * 7) * 1.5) % idleMouth.Count : -1;
+            if (body.Talking < 0 && Talking && shown == idle) body.Talking = 0;
             body.InvalidateVisual();
         }
 
@@ -144,6 +154,7 @@ namespace Solin.Companion.Upstream
             e.Pointer.Capture(this);
             pressed = true;
             dragging = false;
+            clickCount = e.ClickCount;
             downAt = this.PointToScreen(at);
             grab = new PixelPoint(downAt.X - Position.X, downAt.Y - Position.Y);
         }
@@ -163,7 +174,9 @@ namespace Solin.Companion.Upstream
             if (!pressed || e.InitialPressMouseButton != MouseButton.Left) return;
             pressed = false;
             e.Pointer.Capture(null);
-            if (!dragging) Poked?.Invoke(); else Dragged?.Invoke();
+            if (dragging) Dragged?.Invoke();
+            else if (clickCount >= 2) TalkAsked?.Invoke();
+            else Poked?.Invoke();
             dragging = false;
         }
 

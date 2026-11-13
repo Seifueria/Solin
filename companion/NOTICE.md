@@ -36,6 +36,7 @@ this notice. The list below is kept current.
 | assets/sprites/idle.png | lachydotmcg/capri-desktop assets/sprites | placeholder, replace with Solin art |
 | assets/sprites/idle_blink.png | same | placeholder |
 | assets/sprites/idle_blink_glitch.png | same | placeholder |
+| assets/sprites/idle_mouth.png | same | placeholder |
 
 ## Ideas described, no code copied
 
