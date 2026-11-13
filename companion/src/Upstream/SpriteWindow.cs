@@ -47,7 +47,11 @@ namespace Solin.Companion.Upstream
         internal Action Poked;
         internal Action Dragged;
         internal Action TalkAsked;
-        private int clickCount;
+        // Two plain clicks within this long of each other count as a double click. Timed here because the platform's own
+        // click count resets when the pointer is captured and released between clicks.
+        private const double DoubleClickWithin = 0.45;
+        private double lastClickAt = -10;
+        private PixelPoint lastClickWhere;
         // While true the mouth cycles; Solin sets it for as long as a reply is being shown or spoken.
         internal bool Talking;
 
@@ -154,7 +158,6 @@ namespace Solin.Companion.Upstream
             e.Pointer.Capture(this);
             pressed = true;
             dragging = false;
-            clickCount = e.ClickCount;
             downAt = this.PointToScreen(at);
             grab = new PixelPoint(downAt.X - Position.X, downAt.Y - Position.Y);
         }
@@ -175,8 +178,15 @@ namespace Solin.Companion.Upstream
             pressed = false;
             e.Pointer.Capture(null);
             if (dragging) Dragged?.Invoke();
-            else if (clickCount >= 2) TalkAsked?.Invoke();
-            else Poked?.Invoke();
+            else
+            {
+                double now = Now;
+                PixelPoint where = this.PointToScreen(e.GetPosition(this));
+                bool again = now - lastClickAt < DoubleClickWithin && Math.Abs(where.X - lastClickWhere.X) < 12 && Math.Abs(where.Y - lastClickWhere.Y) < 12;
+                lastClickAt = again ? -10 : now;
+                lastClickWhere = where;
+                if (again) TalkAsked?.Invoke(); else Poked?.Invoke();
+            }
             dragging = false;
         }
 
