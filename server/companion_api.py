@@ -209,6 +209,18 @@ def event():
     return jsonify({"mood": s["mood"], "trust": s["trust"]})
 
 
+def first_line(text, limit=140):
+    """The first sentence or line of a reply, markdown marks stripped, short enough for a bubble."""
+    import re
+    text = re.sub(r"[*_`#>]+", "", text or "").strip()
+    text = re.split(r"(?<=[.!?])\s+|\n+", text, maxsplit=1)[0].strip()
+    return text if len(text) <= limit else text[:limit].rstrip() + "…"
+
+
+# Tools that mean Claude has stopped to wait for an answer from you.
+ASKING_TOOLS = ("AskUserQuestion",)
+
+
 def agent_state_of(event):
     """Map a Claude Code hook event to one of Solin's agent states, with a short line for her ticker."""
     name = event.get("hook_event_name", "")
@@ -220,6 +232,8 @@ def agent_state_of(event):
         return "working", "reading what you asked"
     if name == "PreToolUse":
         tool = event.get("tool_name") or "a tool"
+        if tool in ASKING_TOOLS:
+            return "needs_you", "claude has a question for you"
         gist = (event.get("gist") or "").strip()
         return "working", (tool + (": " + gist if gist else "")).lower()[:80]
     if name == "PostToolUse":
@@ -235,7 +249,7 @@ def agent_state_of(event):
     if name == "Stop":
         if event.get("is_interrupt"):
             return "idle", "stopped"
-        return "done", (event.get("last_assistant_message") or "done").strip()[:200]
+        return "done", first_line(event.get("last_assistant_message")) or "done"
     return None, None
 
 
