@@ -68,6 +68,7 @@ namespace Solin.Companion
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
                 sprite = new SpriteWindow();
+                sprite.HideForEntrance();
                 typer = new Typer();
                 bubble = new Bubble();
                 pill = new Pill();
@@ -126,8 +127,19 @@ namespace Solin.Companion
             sprite.Opened += async delegate
             {
                 presence.Start();
+                Entrance();
                 if (await launcher.EnsureRunning(backend)) backend.Listen();
             };
+        }
+
+        // The drawn entrance, then she reassembles out of the dot.
+        private void Entrance()
+        {
+            IntroFx intro = new IntroFx(sprite.BodyCentre, sprite.BodySize);
+            intro.ScreenLit += delegate { sfx.Play("zap"); };
+            intro.Finished += delegate { sprite.Layers.Children.Remove(intro); sprite.Arrive(0.8); sfx.Play("soft"); };
+            sprite.Layers.Children.Add(intro);
+            intro.Start();
         }
 
         // Once a second: sleep when you have been away a while, wake when you return, nudge a break after two hours of no pauses.

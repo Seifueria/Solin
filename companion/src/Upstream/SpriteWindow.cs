@@ -48,6 +48,14 @@ namespace Solin.Companion.Upstream
         private bool teleportLanding;
         // Fired once she has landed after a teleport.
         internal Action Landed;
+        // Body plus anything Solin draws over her, like the entrance.
+        internal readonly Panel Layers = new Panel();
+        internal Point BodyCentre { get { return body.Centre; } }
+        internal double BodySize { get { return body.Size; } }
+        // Hidden until Arrive: the entrance draws first, then she reassembles over this long.
+        private double arriveAt = -1, arriveFor;
+        internal void HideForEntrance() { arriveAt = double.MaxValue; }
+        internal void Arrive(double seconds) { arriveAt = Now; arriveFor = Math.Max(0.1, seconds); }
 
         private readonly Body body = new Body();
         private readonly DispatcherTimer frames = new DispatcherTimer();
@@ -103,7 +111,8 @@ namespace Solin.Companion.Upstream
             Width = Height = size * Room;
             body.Centre = new Point(Width / 2, Height / 2);
             RenderOptions.SetBitmapInterpolationMode(body, BitmapInterpolationMode.HighQuality);
-            Content = body;
+            Layers.Children.Add(body);
+            Content = Layers;
 
             Play(idle);
             frames.Interval = TimeSpan.FromMilliseconds(33);
@@ -248,6 +257,12 @@ namespace Solin.Companion.Upstream
             // Out: she dissolves over the glitch. In: she reassembles over it.
             double progress = clip == glitch ? Math.Clamp((now - clipStart) * glitch.Fps / glitch.Count, 0, 1) : 0;
             body.Dissolve = clip != glitch ? 0 : teleportLanding ? 1 - progress : progress;
+            if (arriveAt == double.MaxValue) body.Dissolve = 1;
+            else if (arriveAt >= 0)
+            {
+                double arriving = (now - arriveAt) / arriveFor;
+                if (arriving >= 1) arriveAt = -1; else body.Dissolve = Math.Max(body.Dissolve, 1 - arriving);
+            }
             // Breath and tilt scale with her size so they read the same at every size.
             double scale = body.Size / 240;
             body.Breathe = settled ? Math.Sin(now * BreathRate) * BreathDepth * scale : 0;
