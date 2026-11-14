@@ -107,6 +107,14 @@ When Claude runs a command, edits a file or goes on the web, sparks fly off
 her hand. An error or a hard landing flashes a red impact frame and tears a
 few slices of her sideways for a moment; her idle glitch tic tears too.
 
+## Menu bar, first run, quiet Claude
+
+Her glyph sits in the menu bar: hide or show her, bring her to the middle of
+the screen, open the chat or settings, quit. On the first run she walks you
+through three cards. When a Claude task goes quiet for fifteen seconds the
+pill says she is waiting on its thinking, and after a minute that it is a
+slow one.
+
 ## Reminders and hellos
 
 "remind me in 20 min to stretch" or "remind me to call mum at 5pm", typed to
