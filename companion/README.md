@@ -77,7 +77,7 @@ to a dot, and she reassembles out of it. All drawn in code, no frames.
 | throw (let go mid-swing) | flies, bounces off the screen edges, lands; the third throw in a row she takes personally |
 | drop her on a window's top edge | she sits on it and rides it when it moves; if it closes she falls, catching any ledge on the way down. A window whose top edge is within about 150 points of the top of its screen is out of reach, since her own window cannot go above the screen |
 | double-click | opens a typing box under her feet. Enter sends, Escape closes |
-| right-click | menu: chat window, talk, mini form or full size, sleep or wake, settings, quit |
+| right-click | menu: chat window, quick line, mini form or full size, lie down, sleep or wake, settings, quit |
 | poke her five times quickly (three when mini) | she is pestered: a jolt, a buzz, and her mood sours |
 | mini form | pocket size; she turns to watch the cursor. `SOLIN_MINI=1` starts her small |
 | seated a few quiet minutes | she lies down along the edge; the menu can ask her to lie down or sit up |
@@ -102,6 +102,11 @@ curl -XPOST -H 'Content-Type: application/json' -d '{"companion":{"wander":0}}' 
 
 ## Flourishes
 
+Left alone she sometimes hops, spins like a flat cut-out with afterimages,
+looks left and right, or cocks her head. Landings squash and stretch her.
+An error knocks her back a step. When Claude first needs you a bolt of
+lightning jumps from her hand to its window before the dashed line settles;
+while it runs a command, red lightning races round that window.
 Fast movement, a throw or a teleport landing, leaves afterimages of her.
 When Claude runs a command, edits a file or goes on the web, sparks fly off
 her hand. An error or a hard landing flashes a red impact frame and tears a
