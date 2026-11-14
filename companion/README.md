@@ -82,6 +82,9 @@ to a dot, and she reassembles out of it. All drawn in code, no frames.
 | mini form | pocket size; she turns to watch the cursor. `SOLIN_MINI=1` starts her small |
 | reply arrives | types into a bubble above her head, mouth moving, then fades |
 | you leave for 8 minutes | she falls asleep on her feet; back after 20 she wakes with a line |
+| left alone | a glitch tic every half minute or so; now and then she wanders along the floor |
+| Claude finishes | after the centre teleport she dances for a few seconds |
+| a warm or teasing reply | she grins |
 | two hours with no 5-minute pause | she asks you to take a break |
 
 ## Sounds

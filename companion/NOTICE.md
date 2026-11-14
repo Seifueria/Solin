@@ -44,6 +44,11 @@ this notice. The list below is kept current.
 | assets/sprites/wake.png | same | placeholder, waking when you return |
 | assets/sprites/perch.png | same | placeholder, sitting on a window |
 | assets/sprites/perch_blink.png | same | placeholder, blink while perched |
+| assets/sprites/perch_talk.png | same | placeholder, talking while perched |
+| assets/sprites/perch_glitch.png | same | placeholder, glitch tic while perched |
+| assets/sprites/walk.png | same | placeholder, wandering |
+| assets/sprites/dance.png | same | placeholder, victory dance |
+| assets/sprites/grin.png | same | placeholder, pleased |
 
 ## Ideas described, no code copied
 

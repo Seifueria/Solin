@@ -39,6 +39,46 @@ namespace Solin.Companion.Upstream
         private const int PerchBlinkFrom = 28;
         private readonly Clip perch = new Clip("perch", 60, 30, 1, PerchShiftX, PerchShiftY);
         private readonly Clip perchBlink = new Clip("perch_blink", 8, 30, 1, PerchShiftX, PerchShiftY);
+        private readonly Clip perchTalk = new Clip("perch_talk", 60, 30, 1, PerchShiftX, PerchShiftY);
+        private readonly Clip perchGlitch = new Clip("perch_glitch", 10, 15, 1, PerchShiftX, PerchShiftY);
+        private readonly Clip walk = new Clip("walk", 12, 12, 1.11);
+        private readonly Clip dance = new Clip("dance", 16, 16, 1.11);
+        private readonly Clip grin = new Clip("grin", 16, 8, 1.11);
+        // A glitch tic now and then while she is quiet, like the base; then wandering, dancing and grinning on request.
+        private double nextTic = 40;
+        private bool walking;
+        private int walkTo;
+        private double danceUntil = -1;
+        // Wander: how often she sets off on her own, 0 to 1; 0 never. Solin sets it.
+        internal double Wanderlust = 0.35;
+        private double nextWander = 20;
+        // True while something is being said, so tics and wandering wait. Solin sets it.
+        internal bool Busy;
+
+        internal void Dance(double seconds) { if (!Asleep && !flying && !pressed) { danceUntil = Now + seconds; Play(dance); } }
+        internal void Grin() { if (!Asleep && !flying && !pressed && seat == null && clip == idle) Play(grin); }
+
+        // Sets off along the floor to an x within her screen's work area.
+        private void Wander(double now)
+        {
+            Screen screen = Screens.ScreenFromPoint(new PixelPoint(Position.X + Px(Width / 2), Position.Y + Px(Height))) ?? Screens.Primary;
+            if (screen == null) return;
+            PixelRect area = screen.WorkingArea;
+            int wide = Px(Width);
+            walkTo = area.X + random.Next(0, Math.Max(1, area.Width - wide));
+            if (Math.Abs(walkTo - Position.X) < Px(body.Size * 0.5)) return;
+            walking = true;
+            body.FacingLeft = walkTo < Position.X;
+            Play(walk);
+        }
+
+        private void Walk(double dt)
+        {
+            double speed = Px(body.Size * 0.55);
+            int step = (int)Math.Max(1, speed * dt);
+            if (Math.Abs(walkTo - Position.X) <= step) { Position = new PixelPoint(walkTo, Position.Y); walking = false; Play(idle); return; }
+            Position = new PixelPoint(Position.X + (walkTo > Position.X ? step : -step), Position.Y);
+        }
         // Where her hip sits in her square, as a share of its size, for resting on a ledge.
         private const double SitX = 0.30, SitY = 0.79;
         // The top of her head in the perch art, as a share of her square; the blank above it is slack her window can lend.
@@ -409,7 +449,21 @@ namespace Solin.Companion.Upstream
             lastTick = now;
             if (flying) Fly(dt);
             if (seat != null && !pressed && !flying) HoldSeat(now);
+            bool onFloor = seat == null && !flying && !pressed && !Asleep;
+            if (walking && (pressed || flying || seat != null || Asleep)) { walking = false; }
+            if (walking) Walk(dt);
+            bool quiet = !Busy && !pressed && !flying && !dragging && !walking && danceUntil < 0 && clip != glitch && clip != perchGlitch && clip != grin && !Asleep && teleportTo == null && arriveAt < 0;
+            if (quiet && now >= nextTic) { nextTic = now + 30 + random.NextDouble() * 30; Play(seat != null ? perchGlitch : glitch); }
+            if (quiet && onFloor && Wanderlust > 0 && now >= nextWander)
+            {
+                nextWander = now + (60 + random.NextDouble() * 120) / Math.Max(0.05, Wanderlust);
+                if (random.NextDouble() < Wanderlust) Wander(now);
+            }
+            if (danceUntil >= 0 && (now >= danceUntil || pressed || flying)) { danceUntil = -1; if (clip == dance) Play(seat != null ? perch : idle); }
             int index = (int)((now - clipStart) * clip.Fps);
+            if (clip == perchGlitch && index >= perchGlitch.Count) { Play(perch); index = 0; }
+            if (clip == grin && index >= grin.Count * 2) { Play(idle); index = 0; }
+            if (clip == glitch && index >= glitch.Count && !teleportTo.HasValue) { Play(seat != null ? perch : idle); index = 0; }
             if (clip == glitch && index >= glitch.Count)
             {
                 if (teleportTo.HasValue && !teleportLanding)
@@ -428,6 +482,8 @@ namespace Solin.Companion.Upstream
             }
             if (clip == wake && index >= wake.Count) { Play(seat != null ? perch : idle); index = 0; }
             if (seat != null && !pressed && !flying && clip == idle) { Play(perch); index = 0; }
+            if (seat != null && clip == perch && Talking) { Play(perchTalk); index = 0; }
+            if (clip == perchTalk && (!Talking || seat == null)) { Play(seat != null ? perch : idle); index = 0; }
             if (clip == idle || clip == perch)
             {
                 int cycle = index / clip.Count;
@@ -458,7 +514,7 @@ namespace Solin.Companion.Upstream
                     else if (at.Value.X > middle + Px(body.Size * 0.15)) body.FacingLeft = false;
                 }
             }
-            else if (!Mini) body.FacingLeft = false;
+            else if (!Mini && !walking) body.FacingLeft = false;
             bool settled = !dragging && !flying && clip != glitch;
             // Asleep she only breathes, slow and deep.
             if (clip == sleep)
@@ -485,7 +541,7 @@ namespace Solin.Companion.Upstream
             // Breath and tilt scale with her size so they read the same at every size.
             double scale = body.Size / 240;
             body.Breathe = settled ? Math.Sin(now * BreathRate) * BreathDepth * scale : 0;
-            body.Tilt = settled ? Math.Sin(now * TiltRate) * TiltDepth : flying ? Math.Clamp(flyVx / 60, -25, 25) : 0;
+            body.Tilt = walking ? Math.Sin(now * 9) * 1.2 : settled ? Math.Sin(now * TiltRate) * TiltDepth : flying ? Math.Clamp(flyVx / 60, -25, 25) : 0;
             double age = now - reactionAt;
             if (settled && age >= 0 && age < ReactionLife)
             {
