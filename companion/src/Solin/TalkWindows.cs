@@ -59,6 +59,7 @@ namespace Solin.Companion
             window.CanResize = false;
             window.WindowStartupLocation = WindowStartupLocation.Manual;
             window.SizeToContent = SizeToContent.WidthAndHeight;
+            Spaces.Everywhere(window);
             return window;
         }
 

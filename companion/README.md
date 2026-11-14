@@ -112,6 +112,12 @@ When Claude runs a command, edits a file or goes on the web, sparks fly off
 her hand. An error or a hard landing flashes a red impact frame and tears a
 few slices of her sideways for a moment; her idle glitch tic tears too.
 
+## Spaces
+
+Her windows live on every macOS Space and above full-screen apps, so a swipe
+between desktops brings her along; she arrives with a zap, a glitch and the
+light column. A window she was sitting on that stays behind drops her.
+
 ## Menu bar, first run, quiet Claude
 
 Her glyph sits in the menu bar: hide or show her, bring her to the middle of
