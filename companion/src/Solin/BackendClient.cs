@@ -1,5 +1,6 @@
 // Solin-owned; not derived from upstream.
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -48,8 +49,14 @@ namespace Solin.Companion
                 return (doc.RootElement.GetProperty("mood").GetString(), doc.RootElement.GetProperty("trust").GetDouble());
         }
 
+        internal readonly struct Reply
+        {
+            internal readonly string Visible, Mood, Audio, Internal;
+            internal Reply(string visible, string mood, string audio, string internalThought) { Visible = visible; Mood = mood; Audio = audio; Internal = internalThought; }
+        }
+
         // speak null leaves it to the backend's configured default.
-        internal async Task<(string visible, string mood, string audio)> Chat(string text, bool? speak = null)
+        internal async Task<Reply> Chat(string text, bool? speak = null)
         {
             string json = speak.HasValue
                 ? await Post("/chat", new { session_id = sessionId, text, speak = speak.Value })
@@ -58,8 +65,32 @@ namespace Solin.Companion
             {
                 JsonElement root = doc.RootElement;
                 string audio = root.TryGetProperty("audio", out JsonElement a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
-                return (root.GetProperty("visible").GetString(), root.GetProperty("mood").GetString(), audio);
+                string inner = root.TryGetProperty("internal", out JsonElement i) && i.ValueKind == JsonValueKind.String ? i.GetString() : null;
+                return new Reply(root.GetProperty("visible").GetString(), root.GetProperty("mood").GetString(), audio, inner);
             }
+        }
+
+        internal async Task<List<(string user, string visible, string internalThought)>> History(int limit = 30)
+        {
+            List<(string, string, string)> out_ = new List<(string, string, string)>();
+            try
+            {
+                using (JsonDocument doc = JsonDocument.Parse(await http.GetStringAsync(baseUrl + "/history?limit=" + limit)))
+                    foreach (JsonElement e in doc.RootElement.GetProperty("history").EnumerateArray())
+                        out_.Add((e.GetProperty("user").GetString(), e.GetProperty("visible").GetString(), e.TryGetProperty("internal", out JsonElement i) ? i.GetString() : null));
+            }
+            catch (Exception) { }
+            return out_;
+        }
+
+        internal async Task<string> BrainName()
+        {
+            try
+            {
+                using (JsonDocument doc = JsonDocument.Parse(await http.GetStringAsync(baseUrl + "/health")))
+                    return doc.RootElement.GetProperty("brain").GetString();
+            }
+            catch (Exception) { return null; }
         }
 
         internal async Task Event(string kind)

@@ -32,6 +32,7 @@ namespace Solin.Companion
         private Typer typer;
         private Bubble bubble;
         private Pill pill;
+        private ChatWindow chat;
         private readonly Voice voice = new Voice();
         private readonly Sfx sfx = new Sfx();
         // The bubble typing and her voice playing each move her mouth; it stops when neither is on.
@@ -76,6 +77,7 @@ namespace Solin.Companion
                 typer = new Typer();
                 bubble = new Bubble();
                 pill = new Pill();
+                chat = new ChatWindow();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
@@ -105,6 +107,7 @@ namespace Solin.Companion
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (thinking) return;
+                    chat.AddHer(visible, replyMood, null);
                     bubble.Say(visible, replyMood ?? mood.Mood);
                     if (audio != null) _ = voice.Play(audio);
                 });
@@ -148,7 +151,10 @@ namespace Solin.Companion
             sprite.PositionChanged += delegate { bubble.Reposition(); pill.Reposition(); };
             bristle.Tick += delegate { if (agentState == "needs_you") sprite.React("jolt"); else bristle.Stop(); };
             backend.AgentChanged += delegate(string state, string detail) { Dispatcher.UIThread.Post(() => Agent(state, detail)); };
-            typer.Sent += delegate(string text) { _ = Ask(text); };
+            typer.Sent += delegate(string text) { chat.AddYou(text); _ = Ask(text); };
+            chat.Sent += delegate(string text) { _ = Ask(text); };
+            chat.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
+            mood.Changed += delegate(MoodState state) { chat.SetMood(state.Mood); };
             presence.Tick += delegate { Presence(); };
             sprite.Opened += async delegate
             {
@@ -160,7 +166,12 @@ namespace Solin.Companion
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[perch] " + sprite.DebugSit()), TimeSpan.FromSeconds(3));
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[perch] after 2s: " + sprite.DebugSeat()), TimeSpan.FromSeconds(5));
                 }
-                if (await launcher.EnsureRunning(backend)) backend.Listen();
+                if (await launcher.EnsureRunning(backend))
+                {
+                    backend.Listen();
+                    chat.Load(await backend.History());
+                    chat.SetBrain(await backend.BrainName());
+                }
             };
         }
 
@@ -170,6 +181,9 @@ namespace Solin.Companion
             ContextMenu menu = new ContextMenu();
             miniItem = new MenuItem { Header = "Mini form" };
             miniItem.Click += delegate { SetMini(!sprite.Mini); };
+            MenuItem chatItem = new MenuItem { Header = "Chat window" };
+            chatItem.Click += delegate { OpenChat(); };
+            menu.Items.Add(chatItem);
             MenuItem talk = new MenuItem { Header = "Talk to her" };
             talk.Click += delegate { typer.Open(new PixelPoint(sprite.Position.X + Px(sprite.Width / 2) - Px(160), sprite.Position.Y + Px(sprite.Height) - Px(30))); };
             MenuItem sleep = new MenuItem { Header = "Sleep" };
@@ -183,6 +197,13 @@ namespace Solin.Companion
             menu.Items.Add(quit);
             menu.Opening += delegate { miniItem.Header = sprite.Mini ? "Full size" : "Mini form"; sleep.Header = sprite.Asleep ? "Wake up" : "Sleep"; };
             return menu;
+        }
+
+        private async void OpenChat()
+        {
+            chat.SetBrain(await backend.BrainName());
+            if (chat.IsVisible) { chat.Activate(); return; }
+            chat.Open(new PixelPoint(sprite.Position.X - Px(400), Math.Max(sprite.Screens.Primary?.WorkingArea.Y ?? 0, sprite.Position.Y - Px(200))));
         }
 
         private void SetMini(bool mini)
@@ -293,16 +314,22 @@ namespace Solin.Companion
             sprite.React("dip");
             try
             {
-                (string visible, string replyMood, string audio) = await backend.Chat(text);
+                chat.Thinking(true);
+                BackendClient.Reply reply = await backend.Chat(text);
                 thinking = false;
-                mood.Set(replyMood, mood.Trust);
-                bubble.Say(visible, replyMood);
+                chat.Thinking(false);
+                mood.Set(reply.Mood, mood.Trust);
+                chat.AddHer(reply.Visible, reply.Mood, reply.Internal);
+                bubble.Say(reply.Visible, reply.Mood);
+                string visible = reply.Visible, replyMood = reply.Mood, audio = reply.Audio;
                 if (replyMood == "warm" || replyMood == "teasing") sprite.Grin();
                 if (audio != null) _ = voice.Play(audio);
             }
             catch (Exception)
             {
                 thinking = false;
+                chat.Thinking(false);
+                chat.AddHer("[offline] i can't reach my backend right now.", "neutral", null);
                 bubble.Say("[offline] i can't reach my backend right now.", "neutral");
             }
         }

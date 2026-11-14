@@ -13,6 +13,7 @@ Solin-owned. Wraps the existing core_ai modules without changing them.
     GET  /brains          every configured brain, whether it can run, and the current one
     POST /hook            a trimmed Claude Code hook event from hooks/solin_hook.py
     POST /say             {"text", "mood", "speak"}  a line of hers without the brain: shown, mood set, spoken if asked
+    GET  /history?limit=N the last N exchanges from her memory: [{"user", "visible", "internal"}]
     POST /brain           {"name": "ollama"}  switch the live brain
 
 Run from the repo root:  python3 -m server.companion_api
@@ -212,6 +213,18 @@ def chat():
             broadcast("speaking", {"on": False})
     broadcast("reply", {"session_id": sid, "visible": visible, "mood": s["mood"]})
     return jsonify({"visible": visible, "internal": internal, "mood": s["mood"], "trust": s["trust"], "audio": audio, "error": error})
+
+
+@app.get("/history")
+def history():
+    try:
+        limit = max(1, min(200, int(request.args.get("limit", "30"))))
+    except ValueError:
+        limit = 30
+    out = []
+    for entry in memory.load_memory()[-limit:]:
+        out.append({"user": entry.get("user", ""), "visible": entry.get("solin_visible", ""), "internal": entry.get("solin_internal", "")})
+    return jsonify({"history": out})
 
 
 @app.post("/say")
