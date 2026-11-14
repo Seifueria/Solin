@@ -28,10 +28,11 @@ namespace Solin.Companion
         }
 
         // Starts pointing from the hand to the rectangle; both are re-read every tick so they can move.
-        internal void Point(Func<PixelPoint> handPoint, Func<PixelRect?> targetRect)
+        internal void Point(Func<PixelPoint> handPoint, Func<PixelRect?> targetRect, bool withBolt = true)
         {
             hand = handPoint; target = targetRect;
             if (!Fit()) return;
+            if (withBolt) canvas.Bolt(0.7);
             if (!IsVisible) Show();
             frames.Start();
         }
@@ -63,6 +64,10 @@ namespace Solin.Companion
         internal Point Hand;
         internal Rect Target;
         private readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+        // A bolt of lightning along the line for its first moments, then the dashed line takes over.
+        internal double BoltUntil = -1;
+        private readonly Random random = new Random();
+        internal void Bolt(double seconds) { BoltUntil = clock.Elapsed.TotalSeconds + seconds; }
         private static readonly Color Red = Color.FromRgb(255, 33, 82), Violet = Color.FromRgb(123, 61, 255);
 
         public override void Render(DrawingContext context)
@@ -70,10 +75,28 @@ namespace Solin.Companion
             double t = clock.Elapsed.TotalSeconds;
             // The nearest point on the target's edge to her hand.
             Point aim = new Point(Math.Clamp(Hand.X, Target.Left, Target.Right), Math.Clamp(Hand.Y, Target.Top, Target.Bottom));
-            // Dashed line, dashes marching toward the window.
-            Pen dashed = new Pen(new SolidColorBrush(Color.FromArgb(230, 255, 244, 246)), 2, new DashStyle(new double[] { 6, 5 }, -(t * 14) % 11));
-            context.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(120, 123, 61, 255)), 5), Hand, aim);
-            context.DrawLine(dashed, Hand, aim);
+            if (t < BoltUntil)
+            {
+                // Jagged lightning from hand to window, redrawn every frame so it crackles: a red core with violet and white edges.
+                Vector step = (aim - Hand) / 9;
+                Vector side = new Vector(-step.Y, step.X);
+                double norm = Math.Max(1, Math.Sqrt(side.X * side.X + side.Y * side.Y));
+                side /= norm;
+                Point[] pts = new Point[10];
+                pts[0] = Hand; pts[9] = aim;
+                for (int i = 1; i < 9; i++) pts[i] = Hand + step * i + side * ((random.NextDouble() - 0.5) * 34);
+                foreach ((Color c, double w) in new[] { (Violet, 7.0), (Red, 4.0), (Color.FromRgb(255, 244, 246), 1.6) })
+                    for (int i = 0; i < 9; i++) context.DrawLine(new Pen(new SolidColorBrush(c), w, lineCap: PenLineCap.Round), pts[i], pts[i + 1]);
+                // A reticle around the hand.
+                context.DrawEllipse(null, new Pen(new SolidColorBrush(Red), 2), Hand, 26, 26);
+            }
+            else
+            {
+                // Dashed line, dashes marching toward the window.
+                Pen dashed = new Pen(new SolidColorBrush(Color.FromArgb(230, 255, 244, 246)), 2, new DashStyle(new double[] { 6, 5 }, -(t * 14) % 11));
+                context.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(120, 123, 61, 255)), 5), Hand, aim);
+                context.DrawLine(dashed, Hand, aim);
+            }
             // Arrow head at the window.
             Vector dir = aim - Hand;
             double len = Math.Max(1, Math.Sqrt(dir.X * dir.X + dir.Y * dir.Y));

@@ -56,6 +56,7 @@ namespace Solin.Companion
         private Card card;
         private FlourishWindow flourish;
         private PointerWindow pointer;
+        private FrameFxWindow frameFx;
         private readonly Vitals vitals = new Vitals();
         private TrayIcon tray;
         private bool hidden;
@@ -114,6 +115,7 @@ namespace Solin.Companion
                 card = new Card();
                 flourish = new FlourishWindow();
                 pointer = new PointerWindow();
+                frameFx = new FrameFxWindow();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
@@ -313,7 +315,7 @@ namespace Solin.Companion
             MenuItem chatItem = new MenuItem { Header = "Chat window" };
             chatItem.Click += delegate { OpenChat(); };
             menu.Items.Add(chatItem);
-            MenuItem talk = new MenuItem { Header = "Talk to her" };
+            MenuItem talk = new MenuItem { Header = "Quick line" };
             // A beat after the menu has closed, or its closing steals the focus straight back.
             talk.Click += delegate { DispatcherTimer.RunOnce(OpenTyper, TimeSpan.FromMilliseconds(180)); };
             MenuItem lie = new MenuItem { Header = "Lie down" };
@@ -486,7 +488,13 @@ namespace Solin.Companion
                     pill.Say(string.IsNullOrEmpty(detail) ? "claude is working" : detail);
                     if (fresh) { sprite.React("dip"); card.Dismiss(); pointer.Stop(); }
                     // Running a command or going on the web: sparks off her fingers.
-                    if (detail != null && (detail.StartsWith("bash") || detail.StartsWith("webfetch") || detail.StartsWith("websearch") || detail.StartsWith("edit") || detail.StartsWith("write"))) fx.Sparks();
+                    if (detail != null && (detail.StartsWith("bash") || detail.StartsWith("webfetch") || detail.StartsWith("websearch") || detail.StartsWith("edit") || detail.StartsWith("write")))
+                    {
+                        fx.Sparks();
+                        // Red lightning races round the window Claude is working in.
+                        PixelRect? home = sprite.WindowOf(ClaudeHomes);
+                        if (home.HasValue) frameFx.Race(home.Value);
+                    }
                     break;
                 case "needs_you":
                     pill.Say(string.IsNullOrEmpty(detail) ? "claude needs you" : detail);
@@ -524,6 +532,7 @@ namespace Solin.Companion
                     sfx.Play("buzz");
                     fx.Impact();
                     sprite.Jitter(0.5);
+                    sprite.KnockBack(toLeft: true);
                     pill.Say(string.IsNullOrEmpty(detail) ? "something broke" : detail, 8);
                     card.Show(agentProject, "ERROR", Card.Red, Pick(ErrorLines), detail, null, null, 10);
                     sprite.React("shake");
