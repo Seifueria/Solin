@@ -222,6 +222,19 @@ namespace Solin.Companion.Upstream
         // A short burst of slice glitching, like the base's tic but without the strip; decays on its own.
         private double glitchUntil = -1;
         internal void Jitter(double seconds) { glitchUntil = Now + seconds; }
+        // The frontmost window of any of these apps, in screen pixels, or null. For pointing at where Claude is.
+        internal PixelRect? WindowOf(params string[] owners)
+        {
+            if (desk == null) return null;
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            foreach (Spot spot in desk.Windows())
+                foreach (string owner in owners)
+                    if (string.Equals(spot.Owner, owner, StringComparison.OrdinalIgnoreCase)) return spot.Bounds;
+            return null;
+        }
+        // Her hand in screen pixels.
+        internal PixelPoint HandScreen { get { Point h = HandPoint; return new PixelPoint(Position.X + Px(h.X), Position.Y + Px(h.Y)); } }
+
         // Her hand, roughly, in her window's points: where sparks come from.
         internal Point HandPoint { get { return new Point(body.Centre.X + (body.FacingLeft ? -1 : 1) * body.Size * 0.22, body.Centre.Y + body.Size * 0.05 - body.Lift); } }
 
