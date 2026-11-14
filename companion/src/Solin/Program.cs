@@ -125,10 +125,20 @@ namespace Solin.Companion
             mood.MoodChanged += delegate(string name) { sprite.React(MoodState.ReactionFor(name)); };
             backend.MoodChanged += delegate(string name, double trust) { Dispatcher.UIThread.Post(() => mood.Set(name, trust)); };
             // Replies from anywhere (the typing box, curl, another client) show in her bubble.
-            backend.Replied += delegate(string visible, string replyMood, string audio)
+            backend.Replied += delegate(string visible, string replyMood, string audio, string kind)
             {
                 Dispatcher.UIThread.Post(() =>
                 {
+                    if (kind == "reminder")
+                    {
+                        // Something you asked her to remind you of: a card, a chime, and her voice if it is on.
+                        sfx.Play("chime");
+                        sprite.React("jolt");
+                        card.Show("you", "REMINDER", Card.Violet, "You asked me to remind you.", visible, null, null, 30);
+                        chat.AddHer("reminder: " + visible, replyMood, null);
+                        if (audio != null) _ = voice.Play(audio);
+                        return;
+                    }
                     if (thinking) return;
                     chat.AddHer(visible, replyMood, null);
                     bubble.Say(visible, replyMood ?? mood.Mood);
@@ -276,6 +286,8 @@ namespace Solin.Companion
                     chat.SetBrain(await backend.BrainName());
                     using (System.Text.Json.JsonDocument doc = await backend.Settings())
                         if (doc != null && doc.RootElement.TryGetProperty("companion", out System.Text.Json.JsonElement c)) ApplyCompanion(c);
+                    // A hello for the time of day, once she has arrived.
+                    if (Environment.GetEnvironmentVariable("SOLIN_QUIET_START") != "1") DispatcherTimer.RunOnce(() => _ = backend.Greet(), TimeSpan.FromSeconds(3.5));
                 }
             };
         }

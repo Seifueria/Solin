@@ -20,8 +20,8 @@ namespace Solin.Companion
         private CancellationTokenSource listening;
 
         internal event Action<string, double> MoodChanged;
-        // visible, mood, and an audio path when the backend already spoke the line.
-        internal event Action<string, string, string> Replied;
+        // visible, mood, an audio path when the backend already spoke the line, and a kind: null, "greeting" or "reminder".
+        internal event Action<string, string, string, string> Replied;
         internal event Action<bool> Speaking;
         internal event Action<bool> Connected;
         internal event Action<string, string> AgentChanged;
@@ -121,6 +121,11 @@ namespace Solin.Companion
             await Post("/say", new { session_id = sessionId, text, mood, speak });
         }
 
+        internal async Task Greet()
+        {
+            try { await Post("/greet", new { session_id = sessionId }); } catch (Exception) { }
+        }
+
         internal async Task Event(string kind)
         {
             try { await Post("/event", new { session_id = sessionId, kind }); }
@@ -188,7 +193,8 @@ namespace Solin.Companion
                         case "reply":
                             Replied?.Invoke(root.GetProperty("visible").GetString(),
                                 root.TryGetProperty("mood", out JsonElement m) ? m.GetString() : null,
-                                root.TryGetProperty("audio", out JsonElement au) && au.ValueKind == JsonValueKind.String ? au.GetString() : null);
+                                root.TryGetProperty("audio", out JsonElement au) && au.ValueKind == JsonValueKind.String ? au.GetString() : null,
+                                root.TryGetProperty("kind", out JsonElement k) && k.ValueKind == JsonValueKind.String ? k.GetString() : null);
                             break;
                         case "speaking": Speaking?.Invoke(root.GetProperty("on").GetBoolean()); break;
                         case "settings": SettingsChanged?.Invoke(root.GetProperty("companion").Clone()); break;
