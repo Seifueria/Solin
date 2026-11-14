@@ -504,9 +504,13 @@ namespace Solin.Companion.Upstream
         {
             base.OnPointerReleased(e);
             if (!pressed || e.InitialPressMouseButton != MouseButton.Left) return;
+            // Releasing the capture raises OnPointerCaptureLost at once, which would wipe the drag flag before it is read.
+            bool wasDragging = dragging;
             pressed = false;
+            releasing = true;
             e.Pointer.Capture(null);
-            if (dragging)
+            releasing = false;
+            if (wasDragging)
             {
                 // Speed over the last few drag samples; fast enough and she flies.
                 if (dragTrail.Count >= 2)
@@ -541,10 +545,16 @@ namespace Solin.Companion.Upstream
             dragging = false;
         }
 
+        private bool releasing;
+
+        // Capture lost some other way mid-drag, like the window going away under the cursor: let her go as if released.
         protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
         {
             base.OnPointerCaptureLost(e);
+            if (releasing) return;
+            bool wasDragging = pressed && dragging;
             pressed = dragging = false;
+            if (wasDragging) Drop();
         }
     }
 }
