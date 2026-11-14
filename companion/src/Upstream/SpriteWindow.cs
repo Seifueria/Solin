@@ -33,6 +33,32 @@ namespace Solin.Companion.Upstream
         private readonly Clip dangle = new Clip("dangle", 24, 10, 1.11);
         // Asleep on her feet while you are away, and the stretch when you come back.
         private readonly Clip sleep = new Clip("sleep", 16, 6, 1.11);
+        // Sitting on a window's top edge: 60 cells at 30 fps in cells cut to her outline, 26 px left of her square's middle
+        // and 36 px down it in 384 px art; her blink there loops cells 29 to 36.
+        private const double PerchShiftX = -26.0 / 384, PerchShiftY = 36.0 / 384;
+        private const int PerchBlinkFrom = 28;
+        private readonly Clip perch = new Clip("perch", 60, 30, 1, PerchShiftX, PerchShiftY);
+        private readonly Clip perchBlink = new Clip("perch_blink", 8, 30, 1, PerchShiftX, PerchShiftY);
+        // Where her hip sits in her square, as a share of its size, for resting on a ledge.
+        private const double SitX = 0.30, SitY = 0.79;
+        private readonly MacDesk desk = OperatingSystem.IsMacOS() ? new MacDesk() : null;
+        private Spot seat;
+        // Her hip's offset from the window's left edge while seated, so she rides it where she landed.
+        private int seatOffset;
+        private double seatChecked;
+        internal bool Seated { get { return seat != null; } }
+        // What she can see to sit on right now, for checking the listing works.
+        internal string DescribeLedges()
+        {
+            if (desk == null) return "no desk";
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            System.Collections.Generic.List<Spot> all = desk.Windows();
+            System.Text.StringBuilder sb = new System.Text.StringBuilder(all.Count + " windows");
+            foreach (Spot spot in all.GetRange(0, Math.Min(4, all.Count))) sb.Append("; #" + spot.Window + " pid " + spot.Pid + " " + spot.Bounds);
+            return sb.ToString();
+        }
+        internal Action Perched;
+        internal Action Fell;
         private readonly Clip wake = new Clip("wake", 13, 15, 1.11);
         internal bool Asleep { get { return clip == sleep; } }
         internal void Sleep() { if (!flying && !pressed && clip != glitch) Play(sleep); }
@@ -141,9 +167,64 @@ namespace Solin.Companion.Upstream
         // Glitches out, moves to target (her window's top-left, in screen pixels) and glitches back in.
         internal void Teleport(PixelPoint target)
         {
+            seat = null;
             teleportTo = target;
             teleportLanding = false;
             Play(glitch);
+        }
+
+        // Her hip, in pixels from her window's top-left.
+        private PixelPoint Hip { get { return new PixelPoint(Px(body.Centre.X - body.Size / 2 + SitX * body.Size), Px(body.Centre.Y - body.Size / 2 + SitY * body.Size)); } }
+
+        // A window whose top edge is under her hip, within reach, front to back; null when there is none.
+        private Spot LedgeUnder(PixelPoint hip, int reach)
+        {
+            if (desk == null) return null;
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            foreach (Spot spot in desk.Windows())
+            {
+                PixelRect b = spot.Bounds;
+                if (hip.X < b.X + 8 || hip.X > b.Right - 8) continue;
+                if (Math.Abs(hip.Y - b.Y) <= reach) return spot;
+                // A window in front of this spot hides any ledge behind it.
+                if (b.Contains(hip)) return null;
+            }
+            return null;
+        }
+
+        private void Sit(Spot spot)
+        {
+            seat = spot;
+            seatOffset = Position.X + Hip.X - spot.Bounds.X;
+            Position = new PixelPoint(spot.Bounds.X + seatOffset - Hip.X, spot.Bounds.Y - Hip.Y);
+            Play(perch);
+            Perched?.Invoke();
+        }
+
+        internal void Unseat()
+        {
+            if (seat == null) return;
+            seat = null;
+            if (clip == perch) Play(idle);
+        }
+
+        // Every few frames while seated: follow the window, or drop when it has gone.
+        private void HoldSeat(double now)
+        {
+            if (seat == null || desk == null || now - seatChecked < 0.08) return;
+            seatChecked = now;
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            Spot found = desk.Find(seat.Window);
+            if (found == null)
+            {
+                seat = null;
+                flying = true; flyX = Position.X; flyY = Position.Y; flyVx = 0; flyVy = 0;
+                Fell?.Invoke();
+                return;
+            }
+            seat = found;
+            PixelPoint want = new PixelPoint(found.Bounds.X + seatOffset - Hip.X, found.Bounds.Y - Hip.Y);
+            if (want != Position) Position = want;
         }
 
         // Her window's top-left that puts her feet at a screen point, kept inside that screen's work area.
@@ -196,6 +277,20 @@ namespace Solin.Companion.Upstream
                     FlightLanded?.Invoke();
                     return;
                 }
+            }
+            // Falling past a window's top edge, she catches it.
+            if (flyVy > 0)
+            {
+                PixelPoint hip = new PixelPoint((int)flyX + Hip.X, (int)flyY + Hip.Y);
+                Spot ledge = LedgeUnder(hip, 14);
+                if (ledge != null && Math.Abs(flyVy) < 1800)
+                {
+                    flying = false;
+                    Position = new PixelPoint((int)flyX, (int)flyY);
+                    Sit(ledge);
+                    FlightLanded?.Invoke();
+                    return;
+                }
                 flyVx *= 0.7;
             }
             Position = new PixelPoint((int)flyX, (int)flyY);
@@ -206,6 +301,7 @@ namespace Solin.Companion.Upstream
             double dt = lastTick > 0 ? Math.Min(now - lastTick, 0.1) : 0.033;
             lastTick = now;
             if (flying) Fly(dt);
+            if (seat != null && !pressed && !flying) HoldSeat(now);
             int index = (int)((now - clipStart) * clip.Fps);
             if (clip == glitch && index >= glitch.Count)
             {
@@ -223,23 +319,26 @@ namespace Solin.Companion.Upstream
                 }
                 index = 0;
             }
-            if (clip == wake && index >= wake.Count) { Play(idle); index = 0; }
-            if (clip == idle)
+            if (clip == wake && index >= wake.Count) { Play(seat != null ? perch : idle); index = 0; }
+            if (seat != null && !pressed && !flying && clip == idle) { Play(perch); index = 0; }
+            if (clip == idle || clip == perch)
             {
                 int cycle = index / clip.Count;
                 if (cycle != idleCycle)
                 {
                     idleCycle = cycle;
                     double roll = random.NextDouble();
-                    blinkWith = roll < BlinkChance * 0.18 ? idleBlinkGlitch : roll < BlinkChance ? idleBlink : null;
+                    if (clip == perch) blinkWith = roll < BlinkChance ? perchBlink : null;
+                    else blinkWith = roll < BlinkChance * 0.18 ? idleBlinkGlitch : roll < BlinkChance ? idleBlink : null;
                 }
             }
             int cell = index % clip.Count;
             Clip shown = clip;
-            if (clip == idle && blinkWith != null && cell >= IdleBlinkFrom && cell < IdleBlinkFrom + blinkWith.Count) { shown = blinkWith; cell -= IdleBlinkFrom; }
+            int blinkFrom = clip == perch ? PerchBlinkFrom : IdleBlinkFrom;
+            if ((clip == idle || clip == perch) && blinkWith != null && cell >= blinkFrom && cell < blinkFrom + blinkWith.Count) { shown = blinkWith; cell -= blinkFrom; }
             if ((pressed || flying) && clip != dangle && clip != glitch) Play(dangle);
             if (clip == sleep && pressed) Play(wake);
-            if (!pressed && !flying && clip == dangle) Play(idle);
+            if (!pressed && !flying && clip == dangle) Play(seat != null ? perch : idle);
             bool settled = !dragging && !flying && clip != glitch;
             // Asleep she only breathes, slow and deep.
             if (clip == sleep)
@@ -296,6 +395,7 @@ namespace Solin.Companion.Upstream
             downAt = this.PointToScreen(at);
             grab = new PixelPoint(downAt.X - Position.X, downAt.Y - Position.Y);
             flying = false;
+            seat = null;
             dragTrail.Clear();
         }
 
@@ -338,6 +438,8 @@ namespace Solin.Companion.Upstream
                     }
                 }
                 Dragged?.Invoke();
+                Spot ledge = LedgeUnder(new PixelPoint(Position.X + Hip.X, Position.Y + Hip.Y), 40);
+                if (ledge != null) Sit(ledge);
             }
             else
             {

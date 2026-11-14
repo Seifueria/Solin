@@ -108,6 +108,8 @@ namespace Solin.Companion
             sprite.Poked += delegate { sprite.React("dip"); sfx.Play("blip"); _ = backend.Event("poked"); };
             sprite.Dragged += delegate { _ = backend.Event("dragged"); };
             sprite.Thrown += delegate { throws++; _ = backend.Event(throws >= 3 ? "thrown" : "dragged"); };
+            sprite.Perched += delegate { sfx.Play("tick"); sprite.React("dip"); };
+            sprite.Fell += delegate { sfx.Play("blip"); };
             sprite.FlightLanded += delegate { sprite.React(throws >= 3 ? "jolt" : "dip"); if (throws >= 3) throws = 0; };
             sprite.TalkAsked += delegate
             {
@@ -128,6 +130,7 @@ namespace Solin.Companion
             {
                 presence.Start();
                 Entrance();
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS") == "1") Console.WriteLine("[windows] " + sprite.DescribeLedges());
                 if (await launcher.EnsureRunning(backend)) backend.Listen();
             };
         }
