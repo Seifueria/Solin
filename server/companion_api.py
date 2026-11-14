@@ -62,11 +62,9 @@ lock = threading.Lock()
 subscribers = []  # list[queue.Queue]
 speaking = False
 # What the coding agent is up to, from Claude Code hooks: idle, working, needs_you, done, error.
-agent = {"state": "idle", "detail": "", "session": None}
-# The last hook events as received, for working out what Claude Code actually sends.
-recent_hooks = []
-# What the coding agent is up to, from Claude Code hooks: idle, working, needs_you, done, error.
-agent = {"state": "idle", "detail": "", "session": None}
+agent = {"state": "idle", "detail": "", "session": None, "report": None, "project": None}
+# The task in progress: when it began, how many tool calls, which files were touched, for the report when it ends.
+task = {"started": None, "actions": 0, "files": set()}
 # The last hook events as received, for working out what Claude Code actually sends.
 recent_hooks = []
 
@@ -378,9 +376,21 @@ def hook():
     state, detail = agent_state_of(event)
     if state is None:
         return jsonify({"ignored": event.get("hook_event_name")})
+    name = event.get("hook_event_name", "")
     with lock:
+        if name == "UserPromptSubmit":
+            task.update({"started": time.time(), "actions": 0, "files": set()})
+        if name == "PreToolUse":
+            task["actions"] += 1
+            if event.get("tool_name") in ("Edit", "Write", "MultiEdit", "NotebookEdit") and event.get("gist"):
+                task["files"].add(os.path.basename(str(event["gist"])))
+        report = None
+        if state == "done":
+            seconds = int(time.time() - task["started"]) if task["started"] else 0
+            report = {"actions": task["actions"], "files": sorted(task["files"]), "seconds": seconds}
+        project = os.path.basename(str(event.get("cwd") or "").rstrip("/")) or None
         changed = state != agent["state"] or detail != agent["detail"]
-        agent.update({"state": state, "detail": detail, "session": event.get("session_id")})
+        agent.update({"state": state, "detail": detail, "session": event.get("session_id"), "report": report, "project": project or agent.get("project")})
     if changed:
         broadcast("agent", dict(agent))
         if state in ("working", "needs_you", "done", "error"):
