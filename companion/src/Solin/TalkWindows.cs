@@ -27,6 +27,12 @@ namespace Solin.Companion
         internal static readonly IBrush Plate = new SolidColorBrush(Color.FromArgb(245, 9, 11, 15));
         internal static readonly IBrush PlateEdge = new SolidColorBrush(Color.FromRgb(70, 73, 82));
 
+        // The "> you:" prompt, dim and italic, for the left of a text box.
+        internal static TextBlock Prompt(double size)
+        {
+            return new TextBlock { Text = "> you:", FontFamily = Mono, FontStyle = FontStyle.Italic, FontSize = size, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+        }
+
         // Strips a TextBox down to bare text on a transparent plate, with the accent as caret and selection.
         internal static void Bare(TextBox box)
         {
@@ -117,11 +123,10 @@ namespace Solin.Companion
             SizeToContent = SizeToContent.Width;
             Height = Tall;
             TalkLook.Bare(box);
-            TextBlock prompt = new TextBlock { Text = "> you:", FontFamily = TalkLook.Mono, FontStyle = FontStyle.Italic, FontSize = 15, Foreground = TalkLook.Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-            DockPanel row = new DockPanel { Margin = new Thickness(18, 0, 14, 0), LastChildFill = true };
-            DockPanel.SetDock(prompt, Dock.Left);
-            row.Children.Add(prompt);
-            row.Children.Add(box);
+            // The prompt lives inside the box, so the placeholder starts after it and nothing overlaps.
+            box.InnerLeftContent = TalkLook.Prompt(15);
+            box.Watermark = "say something";
+            Border row = new Border { Margin = new Thickness(14, 0, 14, 0), Child = box, VerticalAlignment = VerticalAlignment.Center };
             Content = new Border { Background = TalkLook.Plate, BorderBrush = TalkLook.PlateEdge, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Height = Tall, Child = row, BoxShadow = TalkLook.Shadow, Margin = new Thickness(0, 0, 0, 0) };
             box.KeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -135,12 +140,16 @@ namespace Solin.Companion
                     e.Handled = true;
                 }
             };
-            Deactivated += delegate { Hide(); };
+            // Losing focus closes it, except in the moment right after opening, when a closing menu can steal focus.
+            Deactivated += delegate { if ((DateTime.Now - openedAt).TotalMilliseconds > 400) Hide(); else Activate(); };
         }
+
+        private DateTime openedAt = DateTime.MinValue;
 
         internal void Open(PixelPoint at)
         {
             Position = at;
+            openedAt = DateTime.Now;
             Show();
             Activate();
             box.Focus();

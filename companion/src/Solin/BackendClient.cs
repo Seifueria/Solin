@@ -115,6 +115,12 @@ namespace Solin.Companion
             catch (Exception) { return null; }
         }
 
+        // A scripted line of hers through /say: shown, mood set, spoken when asked.
+        internal async Task Say(string text, string mood, bool speak)
+        {
+            await Post("/say", new { session_id = sessionId, text, mood, speak });
+        }
+
         internal async Task Event(string kind)
         {
             try { await Post("/event", new { session_id = sessionId, kind }); }
