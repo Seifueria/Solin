@@ -77,6 +77,9 @@ to a dot, and she reassembles out of it. All drawn in code, no frames.
 | throw (let go mid-swing) | flies, bounces off the screen edges, lands; the third throw in a row she takes personally |
 | drop her on a window's top edge | she sits on it and rides it when it moves; if it closes she falls, catching any ledge on the way down. A window whose top edge is within about 150 points of the top of its screen is out of reach, since her own window cannot go above the screen |
 | double-click | opens a typing box under her feet. Enter sends, Escape closes |
+| right-click | menu: talk, mini form or full size, sleep or wake, quit |
+| poke her five times quickly (three when mini) | she is pestered: a jolt, a buzz, and her mood sours |
+| mini form | pocket size; she turns to watch the cursor. `SOLIN_MINI=1` starts her small |
 | reply arrives | types into a bubble above her head, mouth moving, then fades |
 | you leave for 8 minutes | she falls asleep on her feet; back after 20 she wakes with a line |
 | two hours with no 5-minute pause | she asks you to take a break |

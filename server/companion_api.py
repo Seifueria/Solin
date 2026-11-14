@@ -51,6 +51,7 @@ EVENT_MOODS = {
     "ignored": "tired",
     "greeted": "warm",
     "thrown": "annoyed",
+    "pestered": "annoyed",
 }
 
 app = Flask(__name__)
@@ -250,7 +251,7 @@ def event():
     if kind not in EVENT_MOODS:
         return jsonify({"error": "unknown kind", "known": sorted(EVENT_MOODS)}), 400
     sid, s = session(data.get("session_id"))
-    nudge = -0.02 if kind in ("dragged", "thrown") else 0.005
+    nudge = -0.02 if kind in ("dragged", "thrown", "pestered") else 0.005
     s = set_mood(sid, EVENT_MOODS[kind], trust=s["trust"] + nudge)
     snap = bond.note(kind)
     return jsonify({"mood": s["mood"], "trust": s["trust"], "bond": snap})

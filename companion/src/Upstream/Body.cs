@@ -30,7 +30,9 @@ namespace Solin.Companion.Upstream
         {
             double tall = Size * shown.Height;
             double wide = tall * shown.Wide / shown.Tall;
-            return new Rect(Centre.X - wide / 2 + shown.ShiftX * Size, Centre.Y - tall / 2 + shown.ShiftY * Size, wide, tall);
+            // Mirrored by the pose, the cell's shift mirrors with it unless the artist drew a left-facing strip.
+            double shiftX = FacingLeft && shown.HasFlipped ? -shown.ShiftX : shown.ShiftX;
+            return new Rect(Centre.X - wide / 2 + shiftX * Size, Centre.Y - tall / 2 + shown.ShiftY * Size, wide, tall);
         }
 
         internal Matrix Pose
