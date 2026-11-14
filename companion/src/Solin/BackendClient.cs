@@ -25,6 +25,7 @@ namespace Solin.Companion
         internal event Action<bool> Speaking;
         internal event Action<bool> Connected;
         internal event Action<string, string> AgentChanged;
+        internal event Action<JsonElement> SettingsChanged;
 
         internal BackendClient(int port = DefaultPort, string sessionId = "solin")
         {
@@ -81,6 +82,25 @@ namespace Solin.Companion
             }
             catch (Exception) { }
             return out_;
+        }
+
+        // The settings document as the backend holds it; callers read what they need from the JSON.
+        internal async Task<JsonDocument> Settings()
+        {
+            try { return JsonDocument.Parse(await http.GetStringAsync(baseUrl + "/settings")); }
+            catch (Exception) { return null; }
+        }
+
+        internal async Task<(JsonDocument doc, string error)> SaveSettings(object body)
+        {
+            using (StringContent content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"))
+            using (HttpResponseMessage response = await http.PostAsync(baseUrl + "/settings", content))
+            {
+                string json = await response.Content.ReadAsStringAsync();
+                JsonDocument doc = JsonDocument.Parse(json);
+                string error = doc.RootElement.TryGetProperty("error", out JsonElement e) ? e.GetString() : null;
+                return (doc, error);
+            }
         }
 
         internal async Task<string> BrainName()
@@ -163,6 +183,7 @@ namespace Solin.Companion
                                 root.TryGetProperty("audio", out JsonElement au) && au.ValueKind == JsonValueKind.String ? au.GetString() : null);
                             break;
                         case "speaking": Speaking?.Invoke(root.GetProperty("on").GetBoolean()); break;
+                        case "settings": SettingsChanged?.Invoke(root.GetProperty("companion").Clone()); break;
                         case "agent": AgentChanged?.Invoke(root.GetProperty("state").GetString(), root.TryGetProperty("detail", out JsonElement d) ? d.GetString() : ""); break;
                     }
                 }

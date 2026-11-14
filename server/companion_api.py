@@ -14,6 +14,8 @@ Solin-owned. Wraps the existing core_ai modules without changing them.
     POST /hook            a trimmed Claude Code hook event from hooks/solin_hook.py
     POST /say             {"text", "mood", "speak"}  a line of hers without the brain: shown, mood set, spoken if asked
     GET  /history?limit=N the last N exchanges from her memory: [{"user", "visible", "internal"}]
+    GET  /settings        {"brain", "brains", "voice": {...}, "companion": {...}} from data/config.json
+    POST /settings        {"voice": {...}, "companion": {...}}  merged into data/config.json, returns the result
     POST /brain           {"name": "ollama"}  switch the live brain
 
 Run from the repo root:  python3 -m server.companion_api
@@ -213,6 +215,59 @@ def chat():
             broadcast("speaking", {"on": False})
     broadcast("reply", {"session_id": sid, "visible": visible, "mood": s["mood"]})
     return jsonify({"visible": visible, "internal": internal, "mood": s["mood"], "trust": s["trust"], "audio": audio, "error": error})
+
+
+CONFIG_PATH = os.path.join(ROOT, "data", "config.json")
+COMPANION_DEFAULTS = {"size": "full", "sounds": 0.5, "wander": 0.35, "sleep_after_min": 8, "break_after_min": 120}
+
+
+def read_config():
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            text = f.read().strip()
+        return json.loads(text) if text else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_config(config):
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)
+        f.write("\n")
+
+
+def settings_view():
+    from core_ai import speech
+    config = read_config()
+    companion = dict(COMPANION_DEFAULTS)
+    companion.update(config.get("companion") or {})
+    return {"brain": brain.name, "brain_setting": config.get("brain", "auto"), "brains": brains.available(), "voice": speech.settings(), "companion": companion}
+
+
+@app.get("/settings")
+def get_settings():
+    return jsonify(settings_view())
+
+
+@app.post("/settings")
+def post_settings():
+    """Merges voice and companion settings, and a brain choice, into data/config.json. Other keys stay as they were."""
+    data = request.get_json(silent=True) or {}
+    config = read_config()
+    for section in ("voice", "companion"):
+        if isinstance(data.get(section), dict):
+            config.setdefault(section, {}).update(data[section])
+    if "brain" in data:
+        config["brain"] = data["brain"]
+    write_config(config)
+    if "brain" in data and data["brain"] not in ("auto", brain.name.split(":")[0]):
+        try:
+            switch_brain(data["brain"])
+        except ValueError as error:
+            return jsonify({"error": str(error), "settings": settings_view()}), 400
+    broadcast("settings", {"companion": settings_view()["companion"]})
+    return jsonify(settings_view())
 
 
 @app.get("/history")
