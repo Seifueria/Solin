@@ -107,6 +107,13 @@ When Claude runs a command, edits a file or goes on the web, sparks fly off
 her hand. An error or a hard landing flashes a red impact frame and tears a
 few slices of her sideways for a moment; her idle glitch tic tears too.
 
+## The Mac's own state
+
+Every half minute she checks the battery, the charger, the network and the
+load. Pulling the charger or plugging it back earns a remark; 20% and 8%
+battery earn a card; losing the network earns a card and a glitch; ninety
+seconds of heavy load earns a complaint. Her mood hears about each.
+
 ## Sounds
 
 Small cues made in code, no files: a blip when poked, a zap on teleports,

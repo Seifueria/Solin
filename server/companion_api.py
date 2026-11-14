@@ -55,6 +55,15 @@ EVENT_MOODS = {
     "greeted": "warm",
     "thrown": "annoyed",
     "pestered": "annoyed",
+    # The Mac's own state, from the companion.
+    "unplugged": "curious",
+    "plugged": "calm",
+    "battery_low": "tired",
+    "battery_critical": "annoyed",
+    "offline": "annoyed",
+    "online": "warm",
+    "hot": "annoyed",
+    "cooled": "calm",
 }
 
 app = Flask(__name__)
