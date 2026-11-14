@@ -24,6 +24,8 @@ namespace Solin.Companion.Upstream
         internal double Dissolve;
         // Drawn this much higher than her centre, so she can sit on a ledge her window cannot reach above the screen's top.
         internal double Lift;
+        // 0 none, 1 heavy: a few horizontal slices of her jump sideways this frame, without fading. Solin's addition.
+        internal double Glitch;
         private static readonly Random tear = new Random(7);
 
         internal Rect Place(Clip shown)
@@ -67,9 +69,26 @@ namespace Solin.Companion.Upstream
             {
                 Rect place = Place(shown);
                 Rect source = new Rect(Cell * shown.Wide, 0, shown.Wide, shown.Tall);
-                if (Dissolve <= 0.001)
+                if (Dissolve <= 0.001 && Glitch <= 0.001)
                 {
                     context.DrawImage(shown.Art(FacingLeft), source, place);
+                    if (Talking >= 0 && Mouth != null)
+                        context.DrawImage(Mouth.Art(false), new Rect(Talking * Mouth.Wide, 0, Mouth.Wide, Mouth.Tall), place);
+                    return;
+                }
+                if (Dissolve <= 0.001)
+                {
+                    // Whole, but with a few slices knocked sideways: three to five bands, the rest in place.
+                    context.DrawImage(shown.Art(FacingLeft), source, place);
+                    int cuts = 3 + (int)(Glitch * 2);
+                    for (int i = 0; i < cuts; i++)
+                    {
+                        double y0 = tear.NextDouble() * 0.9, h = 0.03 + tear.NextDouble() * 0.08;
+                        double slide = (tear.NextDouble() * 2 - 1) * Glitch * Size * 0.12;
+                        Rect from = new Rect(source.X, source.Y + y0 * source.Height, source.Width, h * source.Height);
+                        Rect to = new Rect(place.X + slide, place.Y + y0 * place.Height, place.Width, h * place.Height);
+                        context.DrawImage(shown.Art(FacingLeft), from, to);
+                    }
                     if (Talking >= 0 && Mouth != null)
                         context.DrawImage(Mouth.Art(false), new Rect(Talking * Mouth.Wide, 0, Mouth.Wide, Mouth.Tall), place);
                     return;

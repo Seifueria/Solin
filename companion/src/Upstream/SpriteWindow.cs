@@ -210,6 +210,17 @@ namespace Solin.Companion.Upstream
         internal int ShownCell { get { return body.Cell; } }
         internal int ShownMouth { get { return body.Talking; } }
         internal Clip ShownMouthClip { get { return body.Mouth; } }
+        // The frame as drawn: clip, cell, source rect, destination rect and the pose, for effects that echo her.
+        internal (Clip clip, int cell, Rect place, Matrix pose, bool left) DrawnFrame()
+        {
+            Clip shown = body.Shown;
+            return shown == null ? (null, 0, default, Matrix.Identity, false) : (shown, body.Cell, body.Place(shown), body.Pose, body.FacingLeft);
+        }
+        // A short burst of slice glitching, like the base's tic but without the strip; decays on its own.
+        private double glitchUntil = -1;
+        internal void Jitter(double seconds) { glitchUntil = Now + seconds; }
+        // Her hand, roughly, in her window's points: where sparks come from.
+        internal Point HandPoint { get { return new Point(body.Centre.X + (body.FacingLeft ? -1 : 1) * body.Size * 0.22, body.Centre.Y + body.Size * 0.05 - body.Lift); } }
 
         // A short, visible reaction laid over the idle: a dip of acknowledgement, a jolt of annoyance, or a shake of refusal.
         private string reaction;
@@ -550,6 +561,7 @@ namespace Solin.Companion.Upstream
                 if (reaction == "jolt") { body.Breathe += 14 * dip * scale; body.Tilt -= 8 * dip; }
                 if (reaction == "shake" && age < 0.5) body.Tilt += 8 * Math.Sin(age * 50) * (1 - age * 2);
             }
+            body.Glitch = glitchUntil > now ? Math.Min(1, (glitchUntil - now) * 2) : clip == glitch || clip == perchGlitch ? 0.6 : 0;
             body.Shown = shown;
             body.Cell = cell;
             body.Mouth = idleMouth;

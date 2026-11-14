@@ -52,6 +52,7 @@ namespace Solin.Companion
         // From settings: seconds; a break threshold of 0 turns the nudge off.
         private double SleepAfter = 8 * 60, BreakAfter = 2 * 3600;
         private SettingsWindow settings;
+        private FxLayer trail, fx;
         private static readonly string[] WakeLines =
         {
             "[soft yawn] oh. you're back.", "[blink] mm. was i out long?", "[stretch] hey. missed you a bit. don't make it weird.",
@@ -77,6 +78,10 @@ namespace Solin.Companion
             {
                 sprite = new SpriteWindow();
                 sprite.HideForEntrance();
+                trail = new FxLayer(sprite, under: true);
+                fx = new FxLayer(sprite, under: false);
+                sprite.Layers.Children.Insert(0, trail);
+                sprite.Layers.Children.Add(fx);
                 typer = new Typer();
                 bubble = new Bubble();
                 pill = new Pill();
@@ -125,6 +130,7 @@ namespace Solin.Companion
                 {
                     pokes.Clear();
                     sprite.React("jolt");
+                    sprite.Jitter(0.4);
                     sfx.Play("buzz");
                     _ = backend.Event("pestered");
                     return;
@@ -140,7 +146,7 @@ namespace Solin.Companion
             sprite.Thrown += delegate { throws++; _ = backend.Event(throws >= 3 ? "thrown" : "dragged"); };
             sprite.Perched += delegate { sfx.Play("tick"); sprite.React("dip"); };
             sprite.Fell += delegate { sfx.Play("blip"); };
-            sprite.FlightLanded += delegate { sprite.React(throws >= 3 ? "jolt" : "dip"); if (throws >= 3) throws = 0; };
+            sprite.FlightLanded += delegate { sprite.React(throws >= 3 ? "jolt" : "dip"); if (throws >= 3) { fx.Impact(); sprite.Jitter(0.5); throws = 0; } };
             sprite.TalkAsked += delegate
             {
                 // Under her feet, centred.
@@ -148,7 +154,7 @@ namespace Solin.Companion
             };
             bubble.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
             bubble.Speaking += delegate(bool on) { Mouth(on); sprite.Busy = on; if (on) sfx.Play("tick"); };
-            sprite.Landed += delegate { if (agentState == "done") sprite.Dance(4); };
+            sprite.Landed += delegate { sprite.Jitter(0.25); if (agentState == "done") sprite.Dance(4); };
             voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => Mouth(on)); };
             bubble.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             pill.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.04)));
@@ -299,6 +305,8 @@ namespace Solin.Companion
                 case "working":
                     pill.Say(string.IsNullOrEmpty(detail) ? "claude is working" : detail);
                     if (fresh) sprite.React("dip");
+                    // Running a command or going on the web: sparks off her fingers.
+                    if (detail != null && (detail.StartsWith("bash") || detail.StartsWith("webfetch") || detail.StartsWith("websearch") || detail.StartsWith("edit") || detail.StartsWith("write"))) fx.Sparks();
                     break;
                 case "needs_you":
                     pill.Say(string.IsNullOrEmpty(detail) ? "claude needs you" : detail);
@@ -330,6 +338,8 @@ namespace Solin.Companion
                     break;
                 case "error":
                     sfx.Play("buzz");
+                    fx.Impact();
+                    sprite.Jitter(0.5);
                     pill.Say(string.IsNullOrEmpty(detail) ? "something broke" : detail, 8);
                     sprite.React("shake");
                     break;
