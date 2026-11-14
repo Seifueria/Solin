@@ -39,6 +39,10 @@ namespace Solin.Companion
         private bool thinking;
         // Throws in a row; the third one she takes personally.
         private int throws;
+        // Recent pokes; a flurry of them is pestering, and small she has less patience.
+        private readonly System.Collections.Generic.List<double> pokes = new System.Collections.Generic.List<double>();
+        private readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+        private MenuItem miniItem;
         // Presence: how long you have been away, how long you have worked without a real pause.
         private readonly DispatcherTimer presence = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         private double activeSeconds;
@@ -105,7 +109,26 @@ namespace Solin.Companion
                     if (audio != null) _ = voice.Play(audio);
                 });
             };
-            sprite.Poked += delegate { sprite.React("dip"); sfx.Play("blip"); _ = backend.Event("poked"); };
+            sprite.Poked += delegate
+            {
+                double now = clock.Elapsed.TotalSeconds;
+                pokes.RemoveAll(t => now - t > 6);
+                pokes.Add(now);
+                if (pokes.Count >= (sprite.Mini ? 3 : 5))
+                {
+                    pokes.Clear();
+                    sprite.React("jolt");
+                    sfx.Play("buzz");
+                    _ = backend.Event("pestered");
+                    return;
+                }
+                sprite.React("dip");
+                sfx.Play("blip");
+                _ = backend.Event("poked");
+            };
+            sprite.CursorAt = () => Mouse.Position(sprite.Screens.Primary?.Scaling ?? 1);
+            sprite.ContextMenu = Menu();
+            if (Environment.GetEnvironmentVariable("SOLIN_MINI") == "1") sprite.Resize(SpriteWindow.MiniSize);
             sprite.Dragged += delegate { _ = backend.Event("dragged"); };
             sprite.Thrown += delegate { throws++; _ = backend.Event(throws >= 3 ? "thrown" : "dragged"); };
             sprite.Perched += delegate { sfx.Play("tick"); sprite.React("dip"); };
@@ -138,6 +161,34 @@ namespace Solin.Companion
                 }
                 if (await launcher.EnsureRunning(backend)) backend.Listen();
             };
+        }
+
+        // Right-click on her.
+        private ContextMenu Menu()
+        {
+            ContextMenu menu = new ContextMenu();
+            miniItem = new MenuItem { Header = "Mini form" };
+            miniItem.Click += delegate { SetMini(!sprite.Mini); };
+            MenuItem talk = new MenuItem { Header = "Talk to her" };
+            talk.Click += delegate { typer.Open(new PixelPoint(sprite.Position.X + Px(sprite.Width / 2) - Px(160), sprite.Position.Y + Px(sprite.Height) - Px(30))); };
+            MenuItem sleep = new MenuItem { Header = "Sleep" };
+            sleep.Click += delegate { if (sprite.Asleep) sprite.Wake(); else sprite.Sleep(); };
+            MenuItem quit = new MenuItem { Header = "Quit" };
+            quit.Click += delegate { if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop) desktop.Shutdown(); };
+            menu.Items.Add(talk);
+            menu.Items.Add(miniItem);
+            menu.Items.Add(sleep);
+            menu.Items.Add(new Separator());
+            menu.Items.Add(quit);
+            menu.Opening += delegate { miniItem.Header = sprite.Mini ? "Full size" : "Mini form"; sleep.Header = sprite.Asleep ? "Wake up" : "Sleep"; };
+            return menu;
+        }
+
+        private void SetMini(bool mini)
+        {
+            sfx.Play("zap");
+            sprite.Resize(mini ? SpriteWindow.MiniSize : SpriteWindow.FullSize);
+            sprite.React("dip");
         }
 
         // The drawn entrance, then she reassembles out of the dot.

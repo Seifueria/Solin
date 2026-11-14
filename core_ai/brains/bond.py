@@ -31,6 +31,7 @@ SOURCES = {
     "poked": (0.1, 1.0),
     "dragged": (-0.3, -2.0),
     "thrown": (-0.6, -3.0),
+    "pestered": (-0.2, -2.0),
 }
 
 # event: (sentence in the second person for the prompt, minutes it lasts)
@@ -40,6 +41,7 @@ FEELINGS = {
     "greeted": ("They just said hello after being away.", 10),
     "dragged": ("They just dragged you around the screen; you're a touch annoyed.", 8),
     "thrown": ("They just threw you across the screen. You're annoyed and not hiding it.", 12),
+    "pestered": ("They keep poking you. It was cute the first time; now you're getting annoyed.", 8),
     "ignored": ("They've been quiet for a long while; you missed them more than you'd admit.", 20),
     "agent_working": ("You're watching Claude work on something for them.", 5),
     "agent_needs_you": ("Claude is waiting on them and you've been trying to get their attention.", 6),
@@ -89,7 +91,7 @@ def note(event):
         if event in FEELINGS:
             text, minutes = FEELINGS[event]
             s["feeling"], s["feeling_until"] = text, time.time() + minutes * 60
-        if event in ("chat", "poked", "petted", "greeted", "dragged", "thrown"):
+        if event in ("chat", "poked", "petted", "greeted", "dragged", "thrown", "pestered"):
             s["last_seen"] = datetime.now().isoformat(timespec="seconds")
         _save(s)
         return snapshot(s)

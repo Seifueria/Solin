@@ -94,6 +94,27 @@ namespace Solin.Companion.Upstream
         }
         internal Action Perched;
         internal Action Fell;
+        // Pocket size: she watches the cursor with her whole body and takes less to annoy. Solin's addition.
+        internal bool Mini { get; private set; }
+        internal const double FullSize = 240, MiniSize = 110;
+        // Where the cursor is on screen, supplied by Solin's Mouse so this file stays platform-plain.
+        internal Func<PixelPoint?> CursorAt;
+        private double facedAt;
+
+        // Changes her size in place, keeping her feet where they are; a seat is kept too.
+        internal void Resize(double size)
+        {
+            if (Math.Abs(size - body.Size) < 0.5) return;
+            PixelPoint feet = new PixelPoint(Position.X + Px(Width / 2), Position.Y + Px(Height));
+            int wasHipX = Hip.X;
+            body.Size = size;
+            Width = Height = size * Room;
+            body.Centre = new Point(Width / 2, Height / 2);
+            Mini = size <= MiniSize + 0.5;
+            if (seat != null) { seatOffset += Hip.X - wasHipX; Settle(seat); }
+            else Position = new PixelPoint(feet.X - Px(Width / 2), feet.Y - Px(Height));
+            frames.Start();
+        }
         private readonly Clip wake = new Clip("wake", 13, 15, 1.11);
         internal bool Asleep { get { return clip == sleep; } }
         internal void Sleep() { if (!flying && !pressed && clip != glitch) Play(sleep); }
@@ -425,6 +446,19 @@ namespace Solin.Companion.Upstream
             if ((pressed || flying) && clip != dangle && clip != glitch) Play(dangle);
             if (clip == sleep && pressed) Play(wake);
             if (!pressed && !flying && clip == dangle) Play(seat != null ? perch : idle);
+            // Small, she turns to face the cursor, with a little hysteresis so she does not flicker when it is near.
+            if (Mini && CursorAt != null && !pressed && !flying && now - facedAt > 0.25)
+            {
+                facedAt = now;
+                PixelPoint? at = CursorAt();
+                if (at.HasValue)
+                {
+                    int middle = Position.X + Px(body.Centre.X);
+                    if (at.Value.X < middle - Px(body.Size * 0.15)) body.FacingLeft = true;
+                    else if (at.Value.X > middle + Px(body.Size * 0.15)) body.FacingLeft = false;
+                }
+            }
+            else if (!Mini) body.FacingLeft = false;
             bool settled = !dragging && !flying && clip != glitch;
             // Asleep she only breathes, slow and deep.
             if (clip == sleep)
