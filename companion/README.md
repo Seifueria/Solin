@@ -62,6 +62,12 @@ starts it itself from the repo root with `python3 -m server.companion_api`
 Mood changes arriving on `/events` shape her idle: breath and tilt pace, and
 how often she blinks (see `src/Solin/MoodState.cs`).
 
+## Her entrance
+
+On start she is not simply there: four brackets lock onto her spot, a line
+flicks on and opens into a screen with rolling scanlines, the screen snaps
+to a dot, and she reassembles out of it. All drawn in code, no frames.
+
 ## Using her
 
 | do | she |
