@@ -61,10 +61,11 @@ namespace Solin.Companion.Upstream
                 foreach (double share in new[] { 0.5, 0.25, 0.75 })
                 {
                     PixelPoint hip = new PixelPoint(spot.Bounds.X + (int)(spot.Bounds.Width * share), spot.Bounds.Y);
-                    if (LedgeUnder(hip, 2) != spot) continue;
-                    Position = new PixelPoint(hip.X - Hip.X, hip.Y - Hip.Y);
-                    Sit(spot);
-                    return "sat on #" + spot.Window + " " + spot.Owner + " " + spot.Bounds + " at " + Position + " lift " + body.Lift + " clip " + clip.Title;
+                    if (LedgeUnder(hip, 2)?.Window != spot.Window) continue;
+                    // From sixty points above the edge, so the fall and the catch are what gets tested.
+                    Position = new PixelPoint(hip.X - Hip.X, hip.Y - Hip.Y - 60);
+                    Drop();
+                    return "dropped toward #" + spot.Window + " " + spot.Owner + " " + spot.Bounds + " from " + Position;
                 }
             System.Text.StringBuilder why = new System.Text.StringBuilder("nothing to sit on (slack " + Slack + ", hip " + Hip + ")");
             foreach (Screen sc in Screens.All) why.Append("\n  screen " + sc.Bounds + " work " + sc.WorkingArea + (sc.IsPrimary ? " primary" : ""));
@@ -72,7 +73,7 @@ namespace Solin.Companion.Upstream
             {
                 PixelPoint hip = new PixelPoint(spot.Bounds.X + (int)(spot.Bounds.Width * 0.75), spot.Bounds.Y);
                 Screen sc = Screens.ScreenFromPoint(hip);
-                why.Append("\n  " + spot.Owner + " " + spot.Bounds + " hip " + hip + " screen " + (sc == null ? "none" : sc.WorkingArea.ToString()) + " need " + (spot.Bounds.Y - Hip.Y + Slack) + " verdict " + (LedgeUnder(hip, 2) == spot ? "seat" : "no"));
+                why.Append("\n  " + spot.Owner + " " + spot.Bounds + " hip " + hip + " screen " + (sc == null ? "none" : sc.WorkingArea.ToString()) + " need " + (spot.Bounds.Y - Hip.Y + Slack) + " verdict " + (LedgeUnder(hip, 2)?.Window == spot.Window ? "seat" : "no"));
             }
             return why.ToString();
         }
@@ -311,16 +312,33 @@ namespace Solin.Companion.Upstream
             if (screen == null) { flying = false; return; }
             PixelRect area = screen.WorkingArea;
             int wide = Px(Width), tall = Px(Height);
+            int hipWas = (int)flyY + Hip.Y;
             flyVy += Gravity * dt;
             flyX += flyVx * dt;
             flyY += flyVy * dt;
             if (flyX < area.X) { flyX = area.X; flyVx = -flyVx * Bounce; }
             if (flyX > area.Right - wide) { flyX = area.Right - wide; flyVx = -flyVx * Bounce; }
             if (flyY < area.Y) { flyY = area.Y; flyVy = -flyVy * Bounce; }
+            // On the way down, the first window top edge her hip crosses this frame catches her, unless she is going too fast.
+            if (flyVy > 0 && flyVy < 1800)
+            {
+                int hipX = (int)flyX + Hip.X, hipNow = (int)flyY + Hip.Y;
+                Spot ledge = LedgeCrossed(hipX, hipWas, hipNow);
+                if (ledge != null)
+                {
+                    flying = false;
+                    flyY = ledge.Bounds.Y - Hip.Y;
+                    Position = new PixelPoint((int)flyX, (int)flyY);
+                    Sit(ledge);
+                    FlightLanded?.Invoke();
+                    return;
+                }
+            }
             double floor = area.Bottom - tall;
             if (flyY >= floor)
             {
                 flyY = floor;
+                flyVx *= 0.7;
                 if (Math.Abs(flyVy) > 260) flyVy = -flyVy * Bounce;
                 else
                 {
@@ -331,22 +349,37 @@ namespace Solin.Companion.Upstream
                     return;
                 }
             }
-            // Falling past a window's top edge, she catches it.
-            if (flyVy > 0)
-            {
-                PixelPoint hip = new PixelPoint((int)flyX + Hip.X, (int)flyY + Hip.Y);
-                Spot ledge = LedgeUnder(hip, 14);
-                if (ledge != null && Math.Abs(flyVy) < 1800)
-                {
-                    flying = false;
-                    Position = new PixelPoint((int)flyX, (int)flyY);
-                    Sit(ledge);
-                    FlightLanded?.Invoke();
-                    return;
-                }
-                flyVx *= 0.7;
-            }
             Position = new PixelPoint((int)flyX, (int)flyY);
+        }
+
+        // The frontmost window whose top edge lies between two hip heights at this x, honouring headroom and what is in front.
+        private Spot LedgeCrossed(int hipX, int fromY, int toY)
+        {
+            if (desk == null || toY < fromY) return null;
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            foreach (Spot spot in desk.Windows())
+            {
+                PixelRect b = spot.Bounds;
+                if (hipX < b.X + 8 || hipX > b.Right - 8) continue;
+                if (b.Y > fromY && b.Y <= toY)
+                {
+                    Screen screen = Screens.ScreenFromPoint(new PixelPoint(hipX, b.Y)) ?? Screens.Primary;
+                    int top = screen == null ? int.MinValue : screen.WorkingArea.Y;
+                    if (b.Y - Hip.Y + Slack >= top) return spot;
+                }
+                // A window in front that already holds this height hides anything behind it.
+                if (b.Y <= fromY && b.Bottom >= toY) return null;
+            }
+            return null;
+        }
+
+        // Lets her go from wherever she is: she falls, catching the first ledge below or landing on the floor.
+        private void Drop()
+        {
+            seat = null;
+            body.Lift = 0;
+            flying = true;
+            flyX = Position.X; flyY = Position.Y; flyVx = 0; flyVy = 0;
         }
 
         private void Advance(double now)
@@ -492,8 +525,9 @@ namespace Solin.Companion.Upstream
                     }
                 }
                 Dragged?.Invoke();
-                Spot ledge = LedgeUnder(new PixelPoint(Position.X + Hip.X, Position.Y + Hip.Y), 40);
-                if (ledge != null) Sit(ledge);
+                // Right on a ledge she sits; anywhere else she drops, onto the first ledge below or the floor, like the base.
+                Spot ledge = LedgeUnder(new PixelPoint(Position.X + Hip.X, Position.Y + Hip.Y), 24);
+                if (ledge != null) Sit(ledge); else Drop();
             }
             else
             {
