@@ -70,6 +70,52 @@ namespace Solin.Companion.Upstream
         internal bool Busy;
 
         internal void Dance(double seconds) { if (!Asleep && !flying && !pressed) { danceUntil = Now + seconds; Play(dance); } }
+
+        // Little flourishes when she is quiet: a hop, a spin, looking left and right, a cocked head. Solin's additions over the
+        // base's idle. (Ideas described from mochiiwuff/capri-desktop; no code taken.)
+        private string flourish;
+        private double flourishAt = -10, nextFlourish = 25;
+        private const double FlourishLife = 1.1;
+        internal void Flourish(string kind) { flourish = kind; flourishAt = Now; }
+        // A landing or a hit: squash for a moment, then back. Solin's addition.
+        private double squashAt = -10, squashHow;
+        internal void Squash(double how = 1) { squashAt = Now; squashHow = how; }
+        private double shoveAt = -10, shoveDir;
+        internal void KnockBack(bool toLeft) { shoveAt = Now; shoveDir = toLeft ? -1 : 1; Squash(0.6); }
+
+        private void ApplyFlourish(double now)
+        {
+            body.ScaleX = body.ScaleY = 1;
+            body.Shove = 0;
+            double sq = now - squashAt;
+            if (sq >= 0 && sq < 0.32)
+            {
+                // Flat and wide on impact, a little tall on the rebound, then true.
+                double k = sq / 0.32, wave = Math.Sin(k * Math.PI) * (k < 0.5 ? 1 : -0.45);
+                body.ScaleY = 1 - 0.22 * squashHow * wave;
+                body.ScaleX = 1 + 0.16 * squashHow * wave;
+            }
+            double sh = now - shoveAt;
+            if (sh >= 0 && sh < 0.5) body.Shove = shoveDir * body.Size * 0.12 * Math.Sin(Math.Min(1, sh / 0.5) * Math.PI);
+            double f = now - flourishAt;
+            if (flourish == null || f < 0 || f > FlourishLife) { flourish = null; return; }
+            double t = f / FlourishLife;
+            switch (flourish)
+            {
+                case "hop":
+                    // Up and down once, stretching on the way up, squashing on landing.
+                    { double h = Math.Sin(t * Math.PI); body.Breathe -= h * body.Size * 0.14; body.ScaleY *= 1 + 0.08 * Math.Sin(t * Math.PI * 2); body.ScaleX *= 1 - 0.05 * Math.Sin(t * Math.PI * 2); if (t > 0.96 && squashAt < flourishAt) Squash(0.7); break; }
+                case "spin":
+                    // Facing flips four times, squashing to a sliver between faces, like a flat cut-out turning.
+                    { double phase = t * 4; body.FacingLeft = ((int)phase % 2) == 1; body.ScaleX *= Math.Max(0.08, Math.Abs(Math.Cos(phase * Math.PI))); break; }
+                case "look":
+                    // Left, then right, then back to centre.
+                    { body.FacingLeft = t < 0.4; if (t > 0.8) body.FacingLeft = false; body.Tilt += Math.Sin(t * Math.PI * 2) * 2; break; }
+                case "cock":
+                    // Head cocked to one side and held.
+                    { body.Tilt += Math.Sin(Math.Min(1, t * 3) * Math.PI / 2) * (t < 0.85 ? 9 : 9 * (1 - (t - 0.85) / 0.15)); break; }
+            }
+        }
         internal void Grin() { if (!Asleep && !flying && !pressed && seat == null && clip == idle) Play(grin); }
 
         // Sets off along the floor to an x within her screen's work area.
@@ -236,6 +282,16 @@ namespace Solin.Companion.Upstream
         // A short burst of slice glitching, like the base's tic but without the strip; decays on its own.
         private double glitchUntil = -1;
         internal void Jitter(double seconds) { glitchUntil = Now + seconds; }
+        // The numbers of every other window on screen right now; a wholesale change means the Space switched under her.
+        internal System.Collections.Generic.HashSet<long> WindowIds()
+        {
+            System.Collections.Generic.HashSet<long> ids = new System.Collections.Generic.HashSet<long>();
+            if (desk == null) return ids;
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            foreach (Spot spot in desk.Windows()) ids.Add(spot.Window);
+            return ids;
+        }
+
         // The frontmost window of any of these apps, in screen pixels, or null. For pointing at where Claude is.
         internal PixelRect? WindowOf(params string[] owners)
         {
@@ -442,6 +498,7 @@ namespace Solin.Companion.Upstream
                     flyY = ledge.Bounds.Y - Hip.Y;
                     Position = new PixelPoint((int)flyX, (int)flyY);
                     Sit(ledge);
+                    Squash(0.8);
                     FlightLanded?.Invoke();
                     return;
                 }
@@ -457,6 +514,7 @@ namespace Solin.Companion.Upstream
                     flying = false;
                     Position = new PixelPoint((int)flyX, (int)flyY);
                     Play(idle);
+                    Squash(Math.Min(1.4, 0.5 + Math.Abs(flyVy) / 900));
                     FlightLanded?.Invoke();
                     return;
                 }
@@ -519,6 +577,12 @@ namespace Solin.Companion.Upstream
             if (walking) Walk(dt);
             bool quiet = !Busy && !pressed && !flying && !dragging && !walking && danceUntil < 0 && clip != glitch && clip != perchGlitch && clip != grin && !Asleep && teleportTo == null && arriveAt < 0;
             if (quiet && !lying && now >= nextTic) { nextTic = now + 30 + random.NextDouble() * 30; Play(seat != null ? perchGlitch : glitch); }
+            if (quiet && !lying && flourish == null && now >= nextFlourish)
+            {
+                nextFlourish = now + 35 + random.NextDouble() * 55;
+                string[] kinds = seat != null ? new[] { "look", "cock" } : new[] { "hop", "spin", "look", "cock" };
+                Flourish(kinds[random.Next(kinds.Length)]);
+            }
             if (quiet && onFloor && Wanderlust > 0 && now >= nextWander)
             {
                 nextWander = now + (60 + random.NextDouble() * 120) / Math.Max(0.05, Wanderlust);
@@ -541,6 +605,7 @@ namespace Solin.Companion.Upstream
                 {
                     teleportTo = null;
                     Play(idle);
+                    Squash(0.6);
                     Landed?.Invoke();
                 }
                 index = 0;
@@ -586,7 +651,7 @@ namespace Solin.Companion.Upstream
                     else if (at.Value.X > middle + Px(body.Size * 0.15)) body.FacingLeft = false;
                 }
             }
-            else if (!Mini && !walking) body.FacingLeft = false;
+            else if (!Mini && !walking && flourish == null) body.FacingLeft = false;
             bool settled = !dragging && !flying && clip != glitch;
             // Asleep she only breathes, slow and deep.
             if (clip == sleep)
@@ -625,6 +690,7 @@ namespace Solin.Companion.Upstream
                 if (reaction == "shake" && age < 0.5) body.Tilt += 8 * Math.Sin(age * 50) * (1 - age * 2);
             }
             body.Glitch = glitchUntil > now ? Math.Min(1, (glitchUntil - now) * 2) : clip == glitch || clip == perchGlitch ? 0.6 : 0;
+            ApplyFlourish(now);
             body.Shown = shown;
             body.Cell = cell;
             body.Mouth = idleMouth;

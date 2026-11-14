@@ -56,6 +56,11 @@ namespace Solin.Companion
         private Card card;
         private FlourishWindow flourish;
         private PointerWindow pointer;
+        private FrameFxWindow frameFx;
+        // Which windows were on screen last look; a wholesale change means you swiped to another Space and she came along.
+        private System.Collections.Generic.HashSet<long> sceneWas = new System.Collections.Generic.HashSet<long>();
+        private readonly DispatcherTimer scene = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        private DateTime lastSpaceHop = DateTime.MinValue;
         private readonly Vitals vitals = new Vitals();
         private TrayIcon tray;
         private bool hidden;
@@ -101,6 +106,7 @@ namespace Solin.Companion
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
                 sprite = new SpriteWindow();
+                Spaces.Everywhere(sprite);
                 sprite.HideForEntrance();
                 trail = new FxLayer(sprite, under: true);
                 fx = new FxLayer(sprite, under: false);
@@ -114,6 +120,7 @@ namespace Solin.Companion
                 card = new Card();
                 flourish = new FlourishWindow();
                 pointer = new PointerWindow();
+                frameFx = new FrameFxWindow();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
@@ -273,6 +280,8 @@ namespace Solin.Companion
             };
             vitalsTimer.Tick += async delegate { await vitals.Poll(); };
             Tray();
+            scene.Tick += delegate { SceneCheck(); };
+            scene.Start();
             quiet.Tick += delegate { QuietTicker(); };
             quiet.Start();
             card.Acknowledged += delegate { NextTourCard(); };
@@ -313,7 +322,7 @@ namespace Solin.Companion
             MenuItem chatItem = new MenuItem { Header = "Chat window" };
             chatItem.Click += delegate { OpenChat(); };
             menu.Items.Add(chatItem);
-            MenuItem talk = new MenuItem { Header = "Talk to her" };
+            MenuItem talk = new MenuItem { Header = "Quick line" };
             // A beat after the menu has closed, or its closing steals the focus straight back.
             talk.Click += delegate { DispatcherTimer.RunOnce(OpenTyper, TimeSpan.FromMilliseconds(180)); };
             MenuItem lie = new MenuItem { Header = "Lie down" };
@@ -369,6 +378,29 @@ namespace Solin.Companion
             if (hidden) { hidden = false; sprite.Show(); }
             sfx.Play("zap");
             sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
+        }
+
+        // Her window lives on every Space, so a swipe brings her along; this notices the swipe and sells it as a teleport.
+        private void SceneCheck()
+        {
+            System.Collections.Generic.HashSet<long> now = sprite.WindowIds();
+            if (sceneWas.Count >= 2 && now.Count >= 1)
+            {
+                int shared = 0;
+                foreach (long id in now) if (sceneWas.Contains(id)) shared++;
+                double overlap = shared / (double)Math.Max(sceneWas.Count, now.Count);
+                if (overlap < 0.34 && (DateTime.Now - lastSpaceHop).TotalSeconds > 2)
+                {
+                    lastSpaceHop = DateTime.Now;
+                    if (!hidden && !sprite.Asleep)
+                    {
+                        sfx.Play("zap");
+                        sprite.Jitter(0.35);
+                        flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
+                    }
+                }
+            }
+            sceneWas = now;
         }
 
         // A task that has gone quiet: after fifteen seconds the pill says she's waiting on Claude's thinking, after a minute that it's slow.
@@ -486,7 +518,13 @@ namespace Solin.Companion
                     pill.Say(string.IsNullOrEmpty(detail) ? "claude is working" : detail);
                     if (fresh) { sprite.React("dip"); card.Dismiss(); pointer.Stop(); }
                     // Running a command or going on the web: sparks off her fingers.
-                    if (detail != null && (detail.StartsWith("bash") || detail.StartsWith("webfetch") || detail.StartsWith("websearch") || detail.StartsWith("edit") || detail.StartsWith("write"))) fx.Sparks();
+                    if (detail != null && (detail.StartsWith("bash") || detail.StartsWith("webfetch") || detail.StartsWith("websearch") || detail.StartsWith("edit") || detail.StartsWith("write")))
+                    {
+                        fx.Sparks();
+                        // Red lightning races round the window Claude is working in.
+                        PixelRect? home = sprite.WindowOf(ClaudeHomes);
+                        if (home.HasValue) frameFx.Race(home.Value);
+                    }
                     break;
                 case "needs_you":
                     pill.Say(string.IsNullOrEmpty(detail) ? "claude needs you" : detail);
@@ -524,6 +562,7 @@ namespace Solin.Companion
                     sfx.Play("buzz");
                     fx.Impact();
                     sprite.Jitter(0.5);
+                    sprite.KnockBack(toLeft: true);
                     pill.Say(string.IsNullOrEmpty(detail) ? "something broke" : detail, 8);
                     card.Show(agentProject, "ERROR", Card.Red, Pick(ErrorLines), detail, null, null, 10);
                     sprite.React("shake");
