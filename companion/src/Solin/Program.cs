@@ -55,6 +55,9 @@ namespace Solin.Companion
         private FxLayer trail, fx;
         private Card card;
         private FlourishWindow flourish;
+        private PointerWindow pointer;
+        // Apps Claude Code tends to live in, frontmost first.
+        private static readonly string[] ClaudeHomes = { "Claude", "Terminal", "iTerm2", "Warp", "Ghostty", "kitty", "Alacritty", "Code", "Cursor", "Windsurf" };
         private string agentProject;
         private static readonly string[] DoneLines = { "Mission accomplished.", "Done. Told you.", "Wrapped. Go look.", "That's handled." };
         private static readonly string[] WaitLines = { "Waiting on your go-ahead.", "Claude needs you.", "It's asking. Answer it." };
@@ -95,6 +98,7 @@ namespace Solin.Companion
                 settings = new SettingsWindow();
                 card = new Card();
                 flourish = new FlourishWindow();
+                pointer = new PointerWindow();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
@@ -338,7 +342,7 @@ namespace Solin.Companion
             {
                 case "working":
                     pill.Say(string.IsNullOrEmpty(detail) ? "claude is working" : detail);
-                    if (fresh) { sprite.React("dip"); card.Dismiss(); }
+                    if (fresh) { sprite.React("dip"); card.Dismiss(); pointer.Stop(); }
                     // Running a command or going on the web: sparks off her fingers.
                     if (detail != null && (detail.StartsWith("bash") || detail.StartsWith("webfetch") || detail.StartsWith("websearch") || detail.StartsWith("edit") || detail.StartsWith("write"))) fx.Sparks();
                     break;
@@ -347,6 +351,8 @@ namespace Solin.Companion
                     if (fresh)
                     {
                         card.Show(agentProject, "WAITING", Card.Red, Pick(WaitLines), detail);
+                        PixelRect? home = sprite.WindowOf(ClaudeHomes);
+                        if (home.HasValue) DispatcherTimer.RunOnce(() => { if (agentState == "needs_you") pointer.Point(() => sprite.HandScreen, () => sprite.WindowOf(ClaudeHomes)); }, TimeSpan.FromSeconds(1.3));
                         // Next to the cursor, so the question is where you are looking.
                         PixelPoint? at = Mouse.Position(sprite.Screens.Primary?.Scaling ?? 1);
                         if (at.HasValue) { sfx.Play("zap"); sprite.Teleport(sprite.StandingAt(new PixelPoint(at.Value.X + Px(90), at.Value.Y + Px(40)))); }
@@ -356,6 +362,7 @@ namespace Solin.Companion
                     break;
                 case "done":
                     bristle.Stop();
+                    pointer.Stop();
                     pill.Say("done", 8);
                     if (fresh)
                     {
@@ -381,6 +388,7 @@ namespace Solin.Companion
                     break;
                 default:
                     bristle.Stop();
+                    pointer.Stop();
                     pill.Clear();
                     card.Dismiss();
                     break;
