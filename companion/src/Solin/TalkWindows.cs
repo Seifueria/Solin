@@ -20,6 +20,27 @@ namespace Solin.Companion
         internal static readonly IBrush Ink = new SolidColorBrush(Color.FromRgb(243, 238, 246));
         internal static readonly IBrush Faint = new SolidColorBrush(Color.FromArgb(140, 243, 238, 246));
         internal static readonly BoxShadows Shadow = BoxShadows.Parse("0 6 18 0 #80000000");
+        // The terminal face of the base's composer: a mono typeface, a dim prompt, a bright caret.
+        internal static readonly FontFamily Mono = new FontFamily("avares://Solin.Companion/Assets#Share Tech Mono");
+        internal static readonly IBrush Dim = new SolidColorBrush(Color.FromRgb(122, 128, 138));
+        internal static readonly IBrush Plate = new SolidColorBrush(Color.FromArgb(245, 9, 11, 15));
+        internal static readonly IBrush PlateEdge = new SolidColorBrush(Color.FromRgb(70, 73, 82));
+
+        // Strips a TextBox down to bare text on a transparent plate, with the accent as caret and selection.
+        internal static void Bare(TextBox box)
+        {
+            box.FontFamily = Mono;
+            box.BorderThickness = new Thickness(0);
+            box.Padding = new Thickness(0);
+            box.MinHeight = 0;
+            box.VerticalContentAlignment = VerticalAlignment.Center;
+            foreach (string key in new[] { "TextControlBackground", "TextControlBackgroundPointerOver", "TextControlBackgroundFocused", "TextControlBorderBrush", "TextControlBorderBrushPointerOver", "TextControlBorderBrushFocused" })
+                box.Resources[key] = Brushes.Transparent;
+            foreach (string key in new[] { "TextControlForeground", "TextControlForegroundPointerOver", "TextControlForegroundFocused" })
+                box.Resources[key] = Ink;
+            box.Resources["TextControlSelectionHighlightColor"] = new SolidColorBrush(Color.FromArgb(120, 232, 72, 120));
+            box.CaretBrush = AccentBrush;
+        }
 
         internal static Window Floating(Window window)
         {
@@ -79,18 +100,26 @@ namespace Solin.Companion
         }
     }
 
-    // A one-line box under her. Enter sends, Escape closes.
+    // A one-line box under her, in the terminal manner of the base's composer: "> you:" then what you type. Enter sends, Escape closes.
     internal sealed class Typer : Window
     {
-        private readonly TextBox box = new TextBox { Width = 300, Watermark = "say something to solin", Foreground = TalkLook.Ink, Background = Brushes.Transparent, BorderThickness = new Thickness(0), FontSize = 14 };
+        internal const double Tall = 44;
+        private readonly TextBox box = new TextBox { Width = 320, FontSize = 15, VerticalAlignment = VerticalAlignment.Center };
         internal event Action<string> Sent;
 
         internal Typer()
         {
             TalkLook.Floating(this);
             ShowActivated = true;
-            Border inner = new Border { Padding = new Thickness(12, 7), Child = box };
-            Content = TalkLook.Card(inner, 10);
+            SizeToContent = SizeToContent.Width;
+            Height = Tall;
+            TalkLook.Bare(box);
+            TextBlock prompt = new TextBlock { Text = "> you:", FontFamily = TalkLook.Mono, FontStyle = FontStyle.Italic, FontSize = 15, Foreground = TalkLook.Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            DockPanel row = new DockPanel { Margin = new Thickness(18, 0, 14, 0), LastChildFill = true };
+            DockPanel.SetDock(prompt, Dock.Left);
+            row.Children.Add(prompt);
+            row.Children.Add(box);
+            Content = new Border { Background = TalkLook.Plate, BorderBrush = TalkLook.PlateEdge, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Height = Tall, Child = row, BoxShadow = TalkLook.Shadow, Margin = new Thickness(0, 0, 0, 0) };
             box.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key == Key.Escape) { Hide(); e.Handled = true; }
@@ -120,8 +149,8 @@ namespace Solin.Companion
     internal sealed class Bubble : Window
     {
         private readonly TextBlock text = new TextBlock { MaxWidth = 300, TextWrapping = TextWrapping.Wrap, Foreground = TalkLook.Ink, FontSize = 14, LineHeight = 21 };
-        private readonly TextBlock name = new TextBlock { Foreground = TalkLook.Ink, FontSize = 11, FontWeight = FontWeight.SemiBold, Text = "SOLIN  D'ARC" };
-        private readonly TextBlock tag = new TextBlock { Foreground = TalkLook.Faint, FontSize = 11, Text = "live" };
+        private readonly TextBlock name = new TextBlock { Foreground = TalkLook.Ink, FontSize = 12, FontFamily = TalkLook.Mono, Text = "SOLIN D'ARC" };
+        private readonly TextBlock tag = new TextBlock { Foreground = TalkLook.Faint, FontSize = 11, FontFamily = TalkLook.Mono, Text = "live" };
         private readonly Border tagPill = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(7, 1), Background = new SolidColorBrush(Color.FromArgb(60, 232, 72, 120)), VerticalAlignment = VerticalAlignment.Center };
         private readonly Portrait face = new Portrait(44);
         private readonly DispatcherTimer typing = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(28) };
@@ -204,7 +233,7 @@ namespace Solin.Companion
     // One short line over her head: what the coding agent is doing right now.
     internal sealed class Pill : Window
     {
-        private readonly TextBlock text = new TextBlock { Foreground = TalkLook.Ink, FontSize = 12 };
+        private readonly TextBlock text = new TextBlock { Foreground = TalkLook.Ink, FontSize = 12, FontFamily = TalkLook.Mono };
         private readonly DispatcherTimer linger = new DispatcherTimer();
         private Func<PixelPoint> anchor;
 
