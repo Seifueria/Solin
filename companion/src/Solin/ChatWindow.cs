@@ -57,12 +57,8 @@ namespace Solin.Companion
             header.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) { dragFrom = null; e.Pointer.Capture(null); };
 
             scroll.Content = messages;
-            DockPanel inputRow = new DockPanel { LastChildFill = true };
-            TextBlock prompt = new TextBlock { Text = "> you:", FontFamily = TalkLook.Mono, FontStyle = FontStyle.Italic, FontSize = 14, Foreground = TalkLook.Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-            DockPanel.SetDock(prompt, Dock.Left);
-            inputRow.Children.Add(prompt);
-            inputRow.Children.Add(box);
-            Border inputCard = new Border { Background = TalkLook.Plate, BorderBrush = TalkLook.PlateEdge, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8), Margin = new Thickness(14, 4, 14, 12), Child = inputRow };
+            box.InnerLeftContent = TalkLook.Prompt(14);
+            Border inputCard = new Border { Background = TalkLook.Plate, BorderBrush = TalkLook.PlateEdge, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8), Margin = new Thickness(14, 4, 14, 12), Child = box };
             box.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key == Key.Escape) { Hide(); e.Handled = true; }
@@ -140,7 +136,7 @@ namespace Solin.Companion
                 block.Inlines = new InlineCollection();
                 block.Inlines.Add(new Run("SOLIN: ") { Foreground = TalkLook.AccentBrush, FontWeight = FontWeight.Bold });
                 block.Inlines.Add(new Run(text) { Foreground = TalkLook.Ink });
-                if (!string.IsNullOrEmpty(mood) && mood != "neutral") block.Inlines.Add(new Run("  [" + mood + "]") { Foreground = TalkLook.Faint, FontSize = 11 });
+
             }
             return new Border { Child = block, Padding = new Thickness(2, 2), HorizontalAlignment = HorizontalAlignment.Left };
         }

@@ -159,11 +159,7 @@ namespace Solin.Companion
             sprite.Perched += delegate { sfx.Play("tick"); sprite.React("dip"); };
             sprite.Fell += delegate { sfx.Play("blip"); };
             sprite.FlightLanded += delegate { sprite.React(throws >= 3 ? "jolt" : "dip"); if (throws >= 3) { fx.Impact(); sprite.Jitter(0.5); throws = 0; } };
-            sprite.TalkAsked += delegate
-            {
-                // Under her feet, centred.
-                typer.Open(new PixelPoint(sprite.Position.X + Px(sprite.Width / 2) - Px(160), sprite.Position.Y + Px(sprite.Height) - Px(30)));
-            };
+            sprite.TalkAsked += delegate { OpenTyper(); };
             bubble.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
             bubble.Speaking += delegate(bool on) { Mouth(on); sprite.Busy = on; if (on) sfx.Play("tick"); };
             flourish.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
@@ -173,7 +169,7 @@ namespace Solin.Companion
             {
                 sprite.Jitter(0.25);
                 flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
-                if (agentState == "done") { flourish.Burst(sprite.ScreenCentre, sprite.BodySize); sprite.Dance(4); }
+                if (agentState == "done") flourish.Burst(sprite.ScreenCentre, sprite.BodySize);
             };
             voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => Mouth(on)); };
             bubble.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
@@ -211,6 +207,31 @@ namespace Solin.Companion
                 return error;
             };
             backend.SettingsChanged += delegate(System.Text.Json.JsonElement c) { Dispatcher.UIThread.Post(() => ApplyCompanion(c)); };
+            settings.Action += async delegate(string act)
+            {
+                switch (act)
+                {
+                    case "bring":
+                        {
+                            Screen screen = sprite.Screens.Primary;
+                            if (screen == null) break;
+                            PixelRect area = screen.WorkingArea;
+                            sfx.Play("zap");
+                            sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
+                            break;
+                        }
+                    case "mini": SetMini(!sprite.Mini); break;
+                    case "lie": if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); break;
+                    case "quit": if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desk) desk.Shutdown(); break;
+                    case "test-voice":
+                        try { await backend.Say("[soft] testing, testing. can you hear me?", mood.Mood, true); } catch (Exception) { }
+                        break;
+                    case "refresh":
+                        using (System.Text.Json.JsonDocument doc = await backend.Settings())
+                            if (doc != null) settings.Load(doc.RootElement);
+                        break;
+                }
+            };
             chat.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             mood.Changed += delegate(MoodState state) { chat.SetMood(state.Mood); };
             presence.Tick += delegate { Presence(); };
@@ -245,7 +266,8 @@ namespace Solin.Companion
             chatItem.Click += delegate { OpenChat(); };
             menu.Items.Add(chatItem);
             MenuItem talk = new MenuItem { Header = "Talk to her" };
-            talk.Click += delegate { typer.Open(new PixelPoint(sprite.Position.X + Px(sprite.Width / 2) - Px(160), sprite.Position.Y + Px(sprite.Height) - Px(30))); };
+            // A beat after the menu has closed, or its closing steals the focus straight back.
+            talk.Click += delegate { DispatcherTimer.RunOnce(OpenTyper, TimeSpan.FromMilliseconds(180)); };
             MenuItem lie = new MenuItem { Header = "Lie down" };
             lie.Click += delegate { if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); };
             menu.Items.Add(lie);
@@ -263,6 +285,12 @@ namespace Solin.Companion
             menu.Items.Add(quit);
             menu.Opening += delegate { miniItem.Header = sprite.Mini ? "Full size" : "Mini form"; sleep.Header = sprite.Asleep ? "Wake up" : "Sleep"; lie.Header = sprite.Lying ? "Sit up" : "Lie down"; lie.IsEnabled = sprite.Seated; };
             return menu;
+        }
+
+        // The typing box under her feet, centred.
+        private void OpenTyper()
+        {
+            typer.Open(new PixelPoint(sprite.Position.X + Px(sprite.Width / 2) - Px(175), sprite.Position.Y + Px(sprite.Height) - Px(30)));
         }
 
         private async void OpenSettings()
