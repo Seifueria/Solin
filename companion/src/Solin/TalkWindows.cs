@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using Solin.Companion.Upstream;
 
@@ -20,6 +21,33 @@ namespace Solin.Companion
         internal static readonly IBrush Ink = new SolidColorBrush(Color.FromRgb(243, 238, 246));
         internal static readonly IBrush Faint = new SolidColorBrush(Color.FromArgb(140, 243, 238, 246));
         internal static readonly BoxShadows Shadow = BoxShadows.Parse("0 6 18 0 #80000000");
+        // The terminal face of the base's composer: a mono typeface, a dim prompt, a bright caret.
+        internal static readonly FontFamily Mono = new FontFamily("avares://Solin.Companion/Assets#Share Tech Mono");
+        internal static readonly IBrush Dim = new SolidColorBrush(Color.FromRgb(122, 128, 138));
+        internal static readonly IBrush Plate = new SolidColorBrush(Color.FromArgb(245, 9, 11, 15));
+        internal static readonly IBrush PlateEdge = new SolidColorBrush(Color.FromRgb(70, 73, 82));
+
+        // The "> you:" prompt, dim and italic, for the left of a text box.
+        internal static TextBlock Prompt(double size)
+        {
+            return new TextBlock { Text = "> you:", FontFamily = Mono, FontStyle = FontStyle.Italic, FontSize = size, Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+        }
+
+        // Strips a TextBox down to bare text on a transparent plate, with the accent as caret and selection.
+        internal static void Bare(TextBox box)
+        {
+            box.FontFamily = Mono;
+            box.BorderThickness = new Thickness(0);
+            box.Padding = new Thickness(0);
+            box.MinHeight = 0;
+            box.VerticalContentAlignment = VerticalAlignment.Center;
+            foreach (string key in new[] { "TextControlBackground", "TextControlBackgroundPointerOver", "TextControlBackgroundFocused", "TextControlBorderBrush", "TextControlBorderBrushPointerOver", "TextControlBorderBrushFocused" })
+                box.Resources[key] = Brushes.Transparent;
+            foreach (string key in new[] { "TextControlForeground", "TextControlForegroundPointerOver", "TextControlForegroundFocused" })
+                box.Resources[key] = Ink;
+            box.Resources["TextControlSelectionHighlightColor"] = new SolidColorBrush(Color.FromArgb(120, 232, 72, 120));
+            box.CaretBrush = AccentBrush;
+        }
 
         internal static Window Floating(Window window)
         {
@@ -48,6 +76,8 @@ namespace Solin.Companion
     internal sealed class Portrait : Control
     {
         internal Func<(Clip clip, int cell, Clip mouth, int mouthCell)> Frame;
+        // A circle by default; square for the mission cards.
+        internal bool Round = true;
         private readonly DispatcherTimer refresh = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
 
         internal Portrait(double size)
@@ -61,7 +91,7 @@ namespace Solin.Companion
         public override void Render(DrawingContext context)
         {
             Rect box = new Rect(0, 0, Bounds.Width, Bounds.Height);
-            context.FillRectangle(new SolidColorBrush(Color.FromArgb(255, 30, 24, 36)), box, (float)(Bounds.Width / 2));
+            context.FillRectangle(new SolidColorBrush(Color.FromArgb(255, 30, 24, 36)), box, Round ? (float)(Bounds.Width / 2) : 0f);
             if (Frame == null) return;
             (Clip clip, int cell, Clip mouth, int mouthCell) = Frame();
             if (clip == null) return;
@@ -69,28 +99,35 @@ namespace Solin.Companion
             double cropTall = clip.Wide * 0.95;
             Rect source = new Rect(cell * clip.Wide, clip.Tall * 0.02, clip.Wide, cropTall);
             Rect dest = new Rect(box.X - box.Width * 0.08, box.Y - box.Height * 0.02, box.Width * 1.16, box.Height * 1.16 * cropTall / clip.Wide);
-            using (context.PushGeometryClip(new EllipseGeometry(box)))
+            using (context.PushGeometryClip(Round ? (Geometry)new EllipseGeometry(box) : new RectangleGeometry(box)))
             {
                 context.DrawImage(clip.Art(false), source, dest);
                 if (mouth != null && mouthCell >= 0)
                     context.DrawImage(mouth.Art(false), new Rect(mouthCell * mouth.Wide, mouth.Tall * 0.02, mouth.Wide, cropTall), dest);
             }
-            context.DrawEllipse(null, new Pen(TalkLook.AccentBrush, 2), box.Center, box.Width / 2 - 1, box.Height / 2 - 1);
+            if (Round) context.DrawEllipse(null, new Pen(TalkLook.AccentBrush, 2), box.Center, box.Width / 2 - 1, box.Height / 2 - 1);
         }
     }
 
-    // A one-line box under her. Enter sends, Escape closes.
+    // A one-line box under her, in the terminal manner of the base's composer: "> you:" then what you type. Enter sends, Escape closes.
     internal sealed class Typer : Window
     {
-        private readonly TextBox box = new TextBox { Width = 300, Watermark = "say something to solin", Foreground = TalkLook.Ink, Background = Brushes.Transparent, BorderThickness = new Thickness(0), FontSize = 14 };
+        internal const double Tall = 44;
+        private readonly TextBox box = new TextBox { Width = 320, FontSize = 15, VerticalAlignment = VerticalAlignment.Center };
         internal event Action<string> Sent;
 
         internal Typer()
         {
             TalkLook.Floating(this);
             ShowActivated = true;
-            Border inner = new Border { Padding = new Thickness(12, 7), Child = box };
-            Content = TalkLook.Card(inner, 10);
+            SizeToContent = SizeToContent.Width;
+            Height = Tall;
+            TalkLook.Bare(box);
+            // The prompt lives inside the box, so the placeholder starts after it and nothing overlaps.
+            box.InnerLeftContent = TalkLook.Prompt(15);
+            box.Watermark = "say something";
+            Border row = new Border { Margin = new Thickness(14, 0, 14, 0), Child = box, VerticalAlignment = VerticalAlignment.Center };
+            Content = new Border { Background = TalkLook.Plate, BorderBrush = TalkLook.PlateEdge, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Height = Tall, Child = row, BoxShadow = TalkLook.Shadow, Margin = new Thickness(0, 0, 0, 0) };
             box.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key == Key.Escape) { Hide(); e.Handled = true; }
@@ -103,12 +140,16 @@ namespace Solin.Companion
                     e.Handled = true;
                 }
             };
-            Deactivated += delegate { Hide(); };
+            // Losing focus closes it, except in the moment right after opening, when a closing menu can steal focus.
+            Deactivated += delegate { if ((DateTime.Now - openedAt).TotalMilliseconds > 400) Hide(); else Activate(); };
         }
+
+        private DateTime openedAt = DateTime.MinValue;
 
         internal void Open(PixelPoint at)
         {
             Position = at;
+            openedAt = DateTime.Now;
             Show();
             Activate();
             box.Focus();
@@ -120,12 +161,13 @@ namespace Solin.Companion
     internal sealed class Bubble : Window
     {
         private readonly TextBlock text = new TextBlock { MaxWidth = 300, TextWrapping = TextWrapping.Wrap, Foreground = TalkLook.Ink, FontSize = 14, LineHeight = 21 };
-        private readonly TextBlock name = new TextBlock { Foreground = TalkLook.Ink, FontSize = 11, FontWeight = FontWeight.SemiBold, Text = "SOLIN  D'ARC" };
-        private readonly TextBlock tag = new TextBlock { Foreground = TalkLook.Faint, FontSize = 11, Text = "live" };
+        private readonly TextBlock name = new TextBlock { Foreground = TalkLook.Ink, FontSize = 12, FontFamily = TalkLook.Mono, Text = "SOLIN D'ARC" };
+        private readonly TextBlock tag = new TextBlock { Foreground = TalkLook.Faint, FontSize = 11, FontFamily = TalkLook.Mono, Text = "live" };
         private readonly Border tagPill = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(7, 1), Background = new SolidColorBrush(Color.FromArgb(60, 232, 72, 120)), VerticalAlignment = VerticalAlignment.Center };
         private readonly Portrait face = new Portrait(44);
         private readonly DispatcherTimer typing = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(28) };
         private readonly DispatcherTimer linger = new DispatcherTimer();
+        private readonly DispatcherTimer follow = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         private string full = "";
         private int shown;
         private Func<PixelPoint> anchor;
@@ -170,6 +212,7 @@ namespace Solin.Companion
                 }
             };
             linger.Tick += delegate { linger.Stop(); Hide(); };
+            follow.Tick += delegate { if (IsVisible) Place(); else follow.Stop(); };
         }
 
         // Called when she moves, so the bubble stays over her head.
@@ -187,6 +230,7 @@ namespace Solin.Companion
             linger.Stop();
             Place();
             Show();
+            follow.Start();
             Speaking?.Invoke(true);
             typing.Start();
         }
@@ -201,11 +245,13 @@ namespace Solin.Companion
         }
     }
 
-    // One short line over her head: what the coding agent is doing right now.
+    // One short line over her head: what the coding agent is doing right now, as a tag: a red "CLAUDE" chip and the action.
     internal sealed class Pill : Window
     {
-        private readonly TextBlock text = new TextBlock { Foreground = TalkLook.Ink, FontSize = 12 };
+        private readonly TextBlock text = new TextBlock { Foreground = TalkLook.Ink, FontSize = 12, FontFamily = TalkLook.Mono, VerticalAlignment = VerticalAlignment.Center };
+        private readonly TextBlock chip = new TextBlock { Foreground = Brushes.White, FontSize = 9, FontFamily = TalkLook.Mono, Text = "CLAUDE", VerticalAlignment = VerticalAlignment.Center };
         private readonly DispatcherTimer linger = new DispatcherTimer();
+        private readonly DispatcherTimer follow = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         private Func<PixelPoint> anchor;
 
         internal Pill()
@@ -213,30 +259,47 @@ namespace Solin.Companion
             TalkLook.Floating(this);
             ShowActivated = false;
             IsHitTestVisible = false;
-            Content = TalkLook.Card(new Border { Padding = new Thickness(10, 3), Child = text }, 9);
+            StackPanel row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            row.Children.Add(new Border { Background = new SolidColorBrush(Color.FromRgb(255, 33, 82)), CornerRadius = new CornerRadius(2), Padding = new Thickness(5, 1), Child = chip, VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(text);
+            Content = new Border { Background = TalkLook.Plate, BorderBrush = TalkLook.PlateEdge, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 4, 10, 4), Child = row, BoxShadow = TalkLook.Shadow, Margin = new Thickness(8, 4, 8, 14) };
             linger.Tick += delegate { linger.Stop(); Hide(); };
+            // Follows her every few frames while shown, so teleports, walks and drags never leave it behind.
+            follow.Tick += delegate { if (IsVisible) Reposition(); else follow.Stop(); };
         }
 
         internal void Follow(Func<PixelPoint> anchorPoint) { anchor = anchorPoint; }
 
         // Shows the line; with a lifetime it fades by itself, otherwise it stays until the next line or Clear().
-        internal void Say(string line, double seconds = 0)
+        internal void Say(string line, double seconds = 0, string who = "CLAUDE")
         {
             text.Text = line;
+            chip.Text = who;
             linger.Stop();
             Show();
             Reposition();
+            follow.Start();
             if (seconds > 0) { linger.Interval = TimeSpan.FromSeconds(seconds); linger.Start(); }
         }
 
-        internal void Clear() { linger.Stop(); Hide(); }
+        internal void Clear() { linger.Stop(); follow.Stop(); Hide(); }
 
         internal void Reposition()
         {
             if (anchor == null || !IsVisible) return;
             PixelPoint at = anchor();
             double scale = Screens.Primary?.Scaling ?? 1;
-            Position = new PixelPoint(at.X - (int)(Bounds.Width * scale) / 2, at.Y - (int)(Bounds.Height * scale));
+            int wide = (int)(Bounds.Width * scale), tall = (int)(Bounds.Height * scale);
+            if (wide == 0) return;
+            PixelPoint want = new PixelPoint(at.X - wide / 2, at.Y - tall);
+            // Kept inside the screen she is on.
+            Screen screen = Screens.ScreenFromPoint(at) ?? Screens.Primary;
+            if (screen != null)
+            {
+                PixelRect area = screen.WorkingArea;
+                want = new PixelPoint(Math.Clamp(want.X, area.X, Math.Max(area.X, area.Right - wide)), Math.Max(area.Y, want.Y));
+            }
+            if (want != Position) Position = want;
         }
     }
 }

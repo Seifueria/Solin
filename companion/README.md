@@ -80,6 +80,7 @@ to a dot, and she reassembles out of it. All drawn in code, no frames.
 | right-click | menu: chat window, talk, mini form or full size, sleep or wake, settings, quit |
 | poke her five times quickly (three when mini) | she is pestered: a jolt, a buzz, and her mood sours |
 | mini form | pocket size; she turns to watch the cursor. `SOLIN_MINI=1` starts her small |
+| seated a few quiet minutes | she lies down along the edge; the menu can ask her to lie down or sit up |
 | reply arrives | types into a bubble above her head, mouth moving, then fades |
 | you leave for 8 minutes | she falls asleep on her feet; back after 20 she wakes with a line |
 | left alone | a glitch tic every half minute or so; now and then she wanders along the floor |
@@ -98,6 +99,13 @@ whether she starts mini. Everything is stored by the backend in
 ```
 curl -XPOST -H 'Content-Type: application/json' -d '{"companion":{"wander":0}}' localhost:47831/settings
 ```
+
+## Flourishes
+
+Fast movement, a throw or a teleport landing, leaves afterimages of her.
+When Claude runs a command, edits a file or goes on the web, sparks fly off
+her hand. An error or a hard landing flashes a red impact frame and tears a
+few slices of her sideways for a moment; her idle glitch tic tears too.
 
 ## Sounds
 
@@ -124,7 +132,10 @@ plan allows it.
 
 With the hook installed she acts out what Claude Code is doing. A short pill
 over her head shows the current tool. When Claude needs you she teleports
-next to your cursor and bristles until you answer. When a turn finishes she
+next to your cursor, bristles until you answer, shows a WAITING card and
+points a dashed line at the window Claude lives in, brackets on its corners
+and a CLAUDE chip. When a turn finishes she shows a DONE card with what was
+done and how long it took. When a turn finishes she
 teleports to the middle of the screen, bows, and reads out the last line.
 An error makes her shake it off.
 
