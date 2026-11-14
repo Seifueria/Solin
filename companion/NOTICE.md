@@ -22,7 +22,8 @@ are added.
 |---|---|---|
 | src/Upstream/Clip.cs | cross/Pet.cs, class Clip | legacy cells, hologram and threaded flip loading removed |
 | src/Upstream/Body.cs | cross/Pet.cs, class Body | hologram and sleeping z's removed |
-| src/Upstream/SpriteWindow.cs | cross/Pet.cs, class Pet | window setup, Play, idle/blink part of Advance, drag handlers only |
+| src/Upstream/SpriteWindow.cs | cross/Pet.cs, class Pet | window setup, Play, idle/blink part of Advance, drag handlers, perch seat |
+| src/Upstream/MacDesk.cs | cross/Desk.cs, class MacDesk | window listing only; no window moving, no pointer |
 
 ## Placeholder art
 
@@ -41,6 +42,8 @@ this notice. The list below is kept current.
 | assets/sprites/dangle.png | same | placeholder, held and flying |
 | assets/sprites/sleep.png | same | placeholder, asleep while you are away |
 | assets/sprites/wake.png | same | placeholder, waking when you return |
+| assets/sprites/perch.png | same | placeholder, sitting on a window |
+| assets/sprites/perch_blink.png | same | placeholder, blink while perched |
 
 ## Ideas described, no code copied
 

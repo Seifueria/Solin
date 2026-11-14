@@ -22,6 +22,8 @@ namespace Solin.Companion.Upstream
         // 0 is whole, 1 is gone: she fades and tears into drifting horizontal slices on the way out of a teleport, and
         // reassembles on the way in. Solin's addition to the base's body.
         internal double Dissolve;
+        // Drawn this much higher than her centre, so she can sit on a ledge her window cannot reach above the screen's top.
+        internal double Lift;
         private static readonly Random tear = new Random(7);
 
         internal Rect Place(Clip shown)
@@ -38,7 +40,7 @@ namespace Solin.Companion.Upstream
                 return Matrix.CreateTranslation(-Centre.X, -Centre.Y)
                     * Matrix.CreateScale(FacingLeft ? -1 : 1, 1)
                     * Matrix.CreateRotation(Tilt * Math.PI / 180)
-                    * Matrix.CreateTranslation(Centre.X, Centre.Y + Breathe);
+                    * Matrix.CreateTranslation(Centre.X, Centre.Y + Breathe - Lift);
             }
         }
 
