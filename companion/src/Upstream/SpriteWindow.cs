@@ -41,6 +41,20 @@ namespace Solin.Companion.Upstream
         private readonly Clip perchBlink = new Clip("perch_blink", 8, 30, 1, PerchShiftX, PerchShiftY);
         private readonly Clip perchTalk = new Clip("perch_talk", 60, 30, 1, PerchShiftX, PerchShiftY);
         private readonly Clip perchGlitch = new Clip("perch_glitch", 10, 15, 1, PerchShiftX, PerchShiftY);
+        // Lying along a window's top edge, after she has sat a while: the base's laydown set, 60 cells at 30 fps, drawn
+        // smaller and shifted down so her hip stays on the ledge.
+        private const double LieScale = 0.85;
+        private const double LieShiftY = (SitY - 0.5) * (1 - LieScale) + 94.0 / 384 * LieScale;
+        private const double LieHeight = 250.0 / 384 * LieScale;
+        private readonly Clip laydown = new Clip("laydown", 60, 30, LieHeight, 0, LieShiftY);
+        private readonly Clip laydownTalk = new Clip("laydown_talk", 60, 30, LieHeight, 0, LieShiftY);
+        private readonly Clip laydownBlink = new Clip("laydown_blink", 8, 30, LieHeight, 0, LieShiftY);
+        private const int LieBlinkFrom = 28;
+        private bool lying;
+        private double satAt = -1;
+        internal bool Lying { get { return lying; } }
+        internal void LieDown() { if (seat != null && !pressed && !flying) { lying = true; Play(laydown); } }
+        internal void SitUp() { if (lying) { lying = false; Play(seat != null ? perch : idle); } }
         private readonly Clip walk = new Clip("walk", 12, 12, 1.11);
         private readonly Clip dance = new Clip("dance", 16, 16, 1.11);
         private readonly Clip grin = new Clip("grin", 16, 8, 1.11);
@@ -504,7 +518,7 @@ namespace Solin.Companion.Upstream
             if (walking && (pressed || flying || seat != null || Asleep)) { walking = false; }
             if (walking) Walk(dt);
             bool quiet = !Busy && !pressed && !flying && !dragging && !walking && danceUntil < 0 && clip != glitch && clip != perchGlitch && clip != grin && !Asleep && teleportTo == null && arriveAt < 0;
-            if (quiet && now >= nextTic) { nextTic = now + 30 + random.NextDouble() * 30; Play(seat != null ? perchGlitch : glitch); }
+            if (quiet && !lying && now >= nextTic) { nextTic = now + 30 + random.NextDouble() * 30; Play(seat != null ? perchGlitch : glitch); }
             if (quiet && onFloor && Wanderlust > 0 && now >= nextWander)
             {
                 nextWander = now + (60 + random.NextDouble() * 120) / Math.Max(0.05, Wanderlust);
@@ -535,21 +549,28 @@ namespace Solin.Companion.Upstream
             if (seat != null && !pressed && !flying && clip == idle) { Play(perch); index = 0; }
             if (seat != null && clip == perch && Talking) { Play(perchTalk); index = 0; }
             if (clip == perchTalk && (!Talking || seat == null)) { Play(seat != null ? perch : idle); index = 0; }
-            if (clip == idle || clip == perch)
+            // Sat quietly for a couple of minutes, she lies down; picked up or unseated, she is up again.
+            if (seat != null && !lying && clip == perch) { if (satAt < 0) satAt = now; else if (quiet && now - satAt > 120 + random.NextDouble() * 120 && random.NextDouble() < 0.02) LieDown(); }
+            if (seat == null || pressed || flying) { satAt = -1; if (lying) { lying = false; if (clip == laydown || clip == laydownTalk) Play(idle); } }
+            if (lying && clip == perch) { Play(laydown); index = 0; }
+            if (lying && clip == laydown && Talking) { Play(laydownTalk); index = 0; }
+            if (clip == laydownTalk && !Talking) { Play(lying ? laydown : perch); index = 0; }
+            if (clip == idle || clip == perch || clip == laydown)
             {
                 int cycle = index / clip.Count;
                 if (cycle != idleCycle)
                 {
                     idleCycle = cycle;
                     double roll = random.NextDouble();
-                    if (clip == perch) blinkWith = roll < BlinkChance ? perchBlink : null;
+                    if (clip == laydown) blinkWith = roll < BlinkChance ? laydownBlink : null;
+                    else if (clip == perch) blinkWith = roll < BlinkChance ? perchBlink : null;
                     else blinkWith = roll < BlinkChance * 0.18 ? idleBlinkGlitch : roll < BlinkChance ? idleBlink : null;
                 }
             }
             int cell = index % clip.Count;
             Clip shown = clip;
-            int blinkFrom = clip == perch ? PerchBlinkFrom : IdleBlinkFrom;
-            if ((clip == idle || clip == perch) && blinkWith != null && cell >= blinkFrom && cell < blinkFrom + blinkWith.Count) { shown = blinkWith; cell -= blinkFrom; }
+            int blinkFrom = clip == perch ? PerchBlinkFrom : clip == laydown ? LieBlinkFrom : IdleBlinkFrom;
+            if ((clip == idle || clip == perch || clip == laydown) && blinkWith != null && cell >= blinkFrom && cell < blinkFrom + blinkWith.Count) { shown = blinkWith; cell -= blinkFrom; }
             if ((pressed || flying) && clip != dangle && clip != glitch) Play(dangle);
             if (clip == sleep && pressed) Play(wake);
             if (!pressed && !flying && clip == dangle) Play(seat != null ? perch : idle);
