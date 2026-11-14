@@ -52,6 +52,12 @@ namespace Solin.Companion
         // From settings: seconds; a break threshold of 0 turns the nudge off.
         private double SleepAfter = 8 * 60, BreakAfter = 2 * 3600;
         private SettingsWindow settings;
+        private FxLayer trail, fx;
+        private Card card;
+        private string agentProject;
+        private static readonly string[] DoneLines = { "Mission accomplished.", "Done. Told you.", "Wrapped. Go look.", "That's handled." };
+        private static readonly string[] WaitLines = { "Waiting on your go-ahead.", "Claude needs you.", "It's asking. Answer it." };
+        private static readonly string[] ErrorLines = { "That one broke.", "Ow. Error.", "Something snapped." };
         private static readonly string[] WakeLines =
         {
             "[soft yawn] oh. you're back.", "[blink] mm. was i out long?", "[stretch] hey. missed you a bit. don't make it weird.",
@@ -77,11 +83,16 @@ namespace Solin.Companion
             {
                 sprite = new SpriteWindow();
                 sprite.HideForEntrance();
+                trail = new FxLayer(sprite, under: true);
+                fx = new FxLayer(sprite, under: false);
+                sprite.Layers.Children.Insert(0, trail);
+                sprite.Layers.Children.Add(fx);
                 typer = new Typer();
                 bubble = new Bubble();
                 pill = new Pill();
                 chat = new ChatWindow();
                 settings = new SettingsWindow();
+                card = new Card();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
@@ -125,6 +136,7 @@ namespace Solin.Companion
                 {
                     pokes.Clear();
                     sprite.React("jolt");
+                    sprite.Jitter(0.4);
                     sfx.Play("buzz");
                     _ = backend.Event("pestered");
                     return;
@@ -140,7 +152,7 @@ namespace Solin.Companion
             sprite.Thrown += delegate { throws++; _ = backend.Event(throws >= 3 ? "thrown" : "dragged"); };
             sprite.Perched += delegate { sfx.Play("tick"); sprite.React("dip"); };
             sprite.Fell += delegate { sfx.Play("blip"); };
-            sprite.FlightLanded += delegate { sprite.React(throws >= 3 ? "jolt" : "dip"); if (throws >= 3) throws = 0; };
+            sprite.FlightLanded += delegate { sprite.React(throws >= 3 ? "jolt" : "dip"); if (throws >= 3) { fx.Impact(); sprite.Jitter(0.5); throws = 0; } };
             sprite.TalkAsked += delegate
             {
                 // Under her feet, centred.
@@ -148,13 +160,29 @@ namespace Solin.Companion
             };
             bubble.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
             bubble.Speaking += delegate(bool on) { Mouth(on); sprite.Busy = on; if (on) sfx.Play("tick"); };
-            sprite.Landed += delegate { if (agentState == "done") sprite.Dance(4); };
+            sprite.Landed += delegate { sprite.Jitter(0.25); if (agentState == "done") sprite.Dance(4); };
             voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => Mouth(on)); };
             bubble.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             pill.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.04)));
             sprite.PositionChanged += delegate { bubble.Reposition(); pill.Reposition(); };
             bristle.Tick += delegate { if (agentState == "needs_you") sprite.React("jolt"); else bristle.Stop(); };
-            backend.AgentChanged += delegate(string state, string detail) { Dispatcher.UIThread.Post(() => Agent(state, detail)); };
+            backend.AgentEvent += delegate(System.Text.Json.JsonElement root)
+            {
+                string state = root.GetProperty("state").GetString();
+                string detail = root.TryGetProperty("detail", out System.Text.Json.JsonElement d) ? d.GetString() : "";
+                string projectName = root.TryGetProperty("project", out System.Text.Json.JsonElement p) && p.ValueKind == System.Text.Json.JsonValueKind.String ? p.GetString() : null;
+                string statsLine = null;
+                if (root.TryGetProperty("report", out System.Text.Json.JsonElement r) && r.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    int actions = r.TryGetProperty("actions", out System.Text.Json.JsonElement a) ? a.GetInt32() : 0;
+                    int files = r.TryGetProperty("files", out System.Text.Json.JsonElement f) ? f.GetArrayLength() : 0;
+                    int seconds = r.TryGetProperty("seconds", out System.Text.Json.JsonElement sec) ? sec.GetInt32() : 0;
+                    statsLine = actions + (actions == 1 ? " action" : " actions") + " · " + files + (files == 1 ? " file" : " files") + " · " + (seconds >= 60 ? seconds / 60 + " min" : seconds + " s");
+                }
+                Dispatcher.UIThread.Post(() => { agentProject = projectName ?? agentProject; Agent(state, detail, statsLine); });
+            };
+            card.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.02)));
+            card.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             typer.Sent += delegate(string text) { chat.AddYou(text); _ = Ask(text); };
             chat.Sent += delegate(string text) { _ = Ask(text); };
             settings.Applied += async delegate(object body)
@@ -290,7 +318,9 @@ namespace Solin.Companion
         }
 
         // What the coding agent is doing, from Claude Code hooks through the backend.
-        private void Agent(string state, string detail)
+        private string Pick(string[] lines) { return lines[pick.Next(lines.Length)]; }
+
+        private void Agent(string state, string detail, string statsLine = null)
         {
             bool fresh = state != agentState;
             agentState = state;
@@ -298,12 +328,15 @@ namespace Solin.Companion
             {
                 case "working":
                     pill.Say(string.IsNullOrEmpty(detail) ? "claude is working" : detail);
-                    if (fresh) sprite.React("dip");
+                    if (fresh) { sprite.React("dip"); card.Dismiss(); }
+                    // Running a command or going on the web: sparks off her fingers.
+                    if (detail != null && (detail.StartsWith("bash") || detail.StartsWith("webfetch") || detail.StartsWith("websearch") || detail.StartsWith("edit") || detail.StartsWith("write"))) fx.Sparks();
                     break;
                 case "needs_you":
                     pill.Say(string.IsNullOrEmpty(detail) ? "claude needs you" : detail);
                     if (fresh)
                     {
+                        card.Show(agentProject, "WAITING", Card.Red, Pick(WaitLines), detail);
                         // Next to the cursor, so the question is where you are looking.
                         PixelPoint? at = Mouse.Position(sprite.Screens.Primary?.Scaling ?? 1);
                         if (at.HasValue) { sfx.Play("zap"); sprite.Teleport(sprite.StandingAt(new PixelPoint(at.Value.X + Px(90), at.Value.Y + Px(40)))); }
@@ -325,17 +358,21 @@ namespace Solin.Companion
                             sfx.Play("zap");
                             sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
                         }
-                        if (!string.IsNullOrEmpty(detail) && detail != "done") bubble.Say(detail, mood.Mood);
+                        card.Show(agentProject, "DONE", Card.Green, Pick(DoneLines), detail == "done" ? null : detail, statsLine, null, 14);
                     }
                     break;
                 case "error":
                     sfx.Play("buzz");
+                    fx.Impact();
+                    sprite.Jitter(0.5);
                     pill.Say(string.IsNullOrEmpty(detail) ? "something broke" : detail, 8);
+                    card.Show(agentProject, "ERROR", Card.Red, Pick(ErrorLines), detail, null, null, 10);
                     sprite.React("shake");
                     break;
                 default:
                     bristle.Stop();
                     pill.Clear();
+                    card.Dismiss();
                     break;
             }
         }

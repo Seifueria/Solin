@@ -99,6 +99,13 @@ whether she starts mini. Everything is stored by the backend in
 curl -XPOST -H 'Content-Type: application/json' -d '{"companion":{"wander":0}}' localhost:47831/settings
 ```
 
+## Flourishes
+
+Fast movement, a throw or a teleport landing, leaves afterimages of her.
+When Claude runs a command, edits a file or goes on the web, sparks fly off
+her hand. An error or a hard landing flashes a red impact frame and tears a
+few slices of her sideways for a moment; her idle glitch tic tears too.
+
 ## Sounds
 
 Small cues made in code, no files: a blip when poked, a zap on teleports,

@@ -32,9 +32,10 @@ namespace Solin.Companion
             TalkLook.Floating(this);
             ShowActivated = true;
             Width = 380;
+            TalkLook.Bare(box);
             SizeToContent = SizeToContent.Height;
             StackPanel names = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-            names.Children.Add(new TextBlock { Foreground = TalkLook.Ink, FontSize = 11, FontWeight = FontWeight.SemiBold, Text = "SOLIN  D'ARC" });
+            names.Children.Add(new TextBlock { Foreground = TalkLook.Ink, FontSize = 12, FontFamily = TalkLook.Mono, Text = "SOLIN D'ARC" });
             StackPanel tags = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
             tags.Children.Add(new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(7, 1), Background = new SolidColorBrush(Color.FromArgb(60, 232, 72, 120)), Child = tag });
             tags.Children.Add(brainTag);
@@ -55,7 +56,12 @@ namespace Solin.Companion
             header.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) { dragFrom = null; e.Pointer.Capture(null); };
 
             scroll.Content = messages;
-            Border inputCard = new Border { Background = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 6), Margin = new Thickness(14, 4, 14, 12), Child = box };
+            DockPanel inputRow = new DockPanel { LastChildFill = true };
+            TextBlock prompt = new TextBlock { Text = "> you:", FontFamily = TalkLook.Mono, FontStyle = FontStyle.Italic, FontSize = 14, Foreground = TalkLook.Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            DockPanel.SetDock(prompt, Dock.Left);
+            inputRow.Children.Add(prompt);
+            inputRow.Children.Add(box);
+            Border inputCard = new Border { Background = TalkLook.Plate, BorderBrush = TalkLook.PlateEdge, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8), Margin = new Thickness(14, 4, 14, 12), Child = inputRow };
             box.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key == Key.Escape) { Hide(); e.Handled = true; }
