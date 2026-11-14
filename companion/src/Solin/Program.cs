@@ -130,7 +130,12 @@ namespace Solin.Companion
             {
                 presence.Start();
                 Entrance();
-                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS") == "1") Console.WriteLine("[windows] " + sprite.DescribeLedges());
+                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS"))) Console.WriteLine("[windows] " + sprite.DescribeLedges());
+                if (SpriteWindow.DebugPerch)
+                {
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[perch] " + sprite.DebugSit()), TimeSpan.FromSeconds(3));
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[perch] after 2s: " + sprite.DebugSeat()), TimeSpan.FromSeconds(5));
+                }
                 if (await launcher.EnsureRunning(backend)) backend.Listen();
             };
         }

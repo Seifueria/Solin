@@ -41,20 +41,54 @@ namespace Solin.Companion.Upstream
         private readonly Clip perchBlink = new Clip("perch_blink", 8, 30, 1, PerchShiftX, PerchShiftY);
         // Where her hip sits in her square, as a share of its size, for resting on a ledge.
         private const double SitX = 0.30, SitY = 0.79;
+        // The top of her head in the perch art, as a share of her square; the blank above it is slack her window can lend.
+        private const double PerchTop = 0.17;
+        private int Slack { get { return Math.Max(0, Px(body.Centre.Y - body.Size / 2 + PerchTop * body.Size) - 2); } }
         private readonly MacDesk desk = OperatingSystem.IsMacOS() ? new MacDesk() : null;
         private Spot seat;
         // Her hip's offset from the window's left edge while seated, so she rides it where she landed.
         private int seatOffset;
         private double seatChecked;
         internal bool Seated { get { return seat != null; } }
+        internal static readonly bool DebugPerch = Environment.GetEnvironmentVariable("SOLIN_DEBUG_PERCH") == "1";
+
+        // Sits her on the first window she can see, for checking the seat without a drag. Returns what happened.
+        internal string DebugSit()
+        {
+            if (desk == null) return "no desk";
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            foreach (Spot spot in desk.Windows())
+                foreach (double share in new[] { 0.5, 0.25, 0.75 })
+                {
+                    PixelPoint hip = new PixelPoint(spot.Bounds.X + (int)(spot.Bounds.Width * share), spot.Bounds.Y);
+                    if (LedgeUnder(hip, 2) != spot) continue;
+                    Position = new PixelPoint(hip.X - Hip.X, hip.Y - Hip.Y);
+                    Sit(spot);
+                    return "sat on #" + spot.Window + " " + spot.Owner + " " + spot.Bounds + " at " + Position + " lift " + body.Lift + " clip " + clip.Title;
+                }
+            System.Text.StringBuilder why = new System.Text.StringBuilder("nothing to sit on (slack " + Slack + ", hip " + Hip + ")");
+            foreach (Screen sc in Screens.All) why.Append("\n  screen " + sc.Bounds + " work " + sc.WorkingArea + (sc.IsPrimary ? " primary" : ""));
+            foreach (Spot spot in desk.Windows())
+            {
+                PixelPoint hip = new PixelPoint(spot.Bounds.X + (int)(spot.Bounds.Width * 0.75), spot.Bounds.Y);
+                Screen sc = Screens.ScreenFromPoint(hip);
+                why.Append("\n  " + spot.Owner + " " + spot.Bounds + " hip " + hip + " screen " + (sc == null ? "none" : sc.WorkingArea.ToString()) + " need " + (spot.Bounds.Y - Hip.Y + Slack) + " verdict " + (LedgeUnder(hip, 2) == spot ? "seat" : "no"));
+            }
+            return why.ToString();
+        }
+
+        internal string DebugSeat() { return seat == null ? "unseated, clip " + clip.Title + " flying " + flying : "seated on #" + seat.Window + " at " + Position + " clip " + clip.Title; }
+
         // What she can see to sit on right now, for checking the listing works.
         internal string DescribeLedges()
         {
             if (desk == null) return "no desk";
             desk.Scale = Screens.Primary?.Scaling ?? 1;
             System.Collections.Generic.List<Spot> all = desk.Windows();
-            System.Text.StringBuilder sb = new System.Text.StringBuilder(all.Count + " windows");
-            foreach (Spot spot in all.GetRange(0, Math.Min(4, all.Count))) sb.Append("; #" + spot.Window + " pid " + spot.Pid + " " + spot.Bounds);
+            Screen primary = Screens.Primary;
+            System.Text.StringBuilder sb = new System.Text.StringBuilder("screen " + (primary == null ? "?" : primary.Bounds + " scaling " + primary.Scaling + " work " + primary.WorkingArea) + "; me at " + Position + " size " + Width + "x" + Height + " hip " + Hip + "; " + all.Count + " windows");
+            foreach (Spot spot in all.GetRange(0, Math.Min(5, all.Count))) sb.Append("; #" + spot.Window + " " + spot.Owner + " " + spot.Bounds);
+            if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS") == "2") sb.Append(desk.Dump());
             return sb.ToString();
         }
         internal Action Perched;
@@ -168,6 +202,7 @@ namespace Solin.Companion.Upstream
         internal void Teleport(PixelPoint target)
         {
             seat = null;
+            body.Lift = 0;
             teleportTo = target;
             teleportLanding = false;
             Play(glitch);
@@ -185,6 +220,10 @@ namespace Solin.Companion.Upstream
             {
                 PixelRect b = spot.Bounds;
                 if (hip.X < b.X + 8 || hip.X > b.Right - 8) continue;
+                // Too close to the top of its screen for her window to reach, even with her lifted inside it: no seat.
+                Screen screen = Screens.ScreenFromPoint(new PixelPoint(hip.X, b.Y)) ?? Screens.Primary;
+                int top = screen == null ? int.MinValue : screen.WorkingArea.Y;
+                if (b.Y - Hip.Y + Slack < top) { if (b.Contains(hip)) return null; continue; }
                 if (Math.Abs(hip.Y - b.Y) <= reach) return spot;
                 // A window in front of this spot hides any ledge behind it.
                 if (b.Contains(hip)) return null;
@@ -192,11 +231,23 @@ namespace Solin.Companion.Upstream
             return null;
         }
 
+        // Puts her hip on the seat's top edge; when that is above the screen's top, her window stops there and she is lifted inside it.
+        private void Settle(Spot spot)
+        {
+            int wantY = spot.Bounds.Y - Hip.Y;
+            Screen screen = Screens.ScreenFromPoint(new PixelPoint(spot.Bounds.X + seatOffset, spot.Bounds.Y)) ?? Screens.Primary;
+            int top = screen == null ? wantY : screen.WorkingArea.Y;
+            int lift = Math.Clamp(top - wantY, 0, Slack);
+            PixelPoint want = new PixelPoint(spot.Bounds.X + seatOffset - Hip.X, wantY + lift);
+            if (want != Position) Position = want;
+            body.Lift = lift / (Screens.Primary?.Scaling ?? 1);
+        }
+
         private void Sit(Spot spot)
         {
             seat = spot;
             seatOffset = Position.X + Hip.X - spot.Bounds.X;
-            Position = new PixelPoint(spot.Bounds.X + seatOffset - Hip.X, spot.Bounds.Y - Hip.Y);
+            Settle(spot);
             Play(perch);
             Perched?.Invoke();
         }
@@ -205,6 +256,7 @@ namespace Solin.Companion.Upstream
         {
             if (seat == null) return;
             seat = null;
+            body.Lift = 0;
             if (clip == perch) Play(idle);
         }
 
@@ -215,16 +267,17 @@ namespace Solin.Companion.Upstream
             seatChecked = now;
             desk.Scale = Screens.Primary?.Scaling ?? 1;
             Spot found = desk.Find(seat.Window);
+            if (found == null && DebugPerch) Console.WriteLine("[perch] lost window #" + seat.Window);
             if (found == null)
             {
                 seat = null;
+                body.Lift = 0;
                 flying = true; flyX = Position.X; flyY = Position.Y; flyVx = 0; flyVy = 0;
                 Fell?.Invoke();
                 return;
             }
             seat = found;
-            PixelPoint want = new PixelPoint(found.Bounds.X + seatOffset - Hip.X, found.Bounds.Y - Hip.Y);
-            if (want != Position) Position = want;
+            Settle(found);
         }
 
         // Her window's top-left that puts her feet at a screen point, kept inside that screen's work area.
@@ -396,6 +449,7 @@ namespace Solin.Companion.Upstream
             grab = new PixelPoint(downAt.X - Position.X, downAt.Y - Position.Y);
             flying = false;
             seat = null;
+            body.Lift = 0;
             dragTrail.Clear();
         }
 

@@ -75,7 +75,7 @@ to a dot, and she reassembles out of it. All drawn in code, no frames.
 | click | dips, tells the backend she was poked |
 | drag | hangs from the cursor; the backend hears she was dragged |
 | throw (let go mid-swing) | flies, bounces off the screen edges, lands; the third throw in a row she takes personally |
-| drop her on a window's top edge | she sits on it and rides it when it moves; if it closes she falls, catching any ledge on the way down |
+| drop her on a window's top edge | she sits on it and rides it when it moves; if it closes she falls, catching any ledge on the way down. A window whose top edge is within about 150 points of the top of its screen is out of reach, since her own window cannot go above the screen |
 | double-click | opens a typing box under her feet. Enter sends, Escape closes |
 | reply arrives | types into a bubble above her head, mouth moving, then fades |
 | you leave for 8 minutes | she falls asleep on her feet; back after 20 she wakes with a line |
@@ -118,6 +118,12 @@ python3 hooks/install_hook.py          # or --remove
 
 The hook forwards event names, tool names and a one-line gist to the local
 API. File contents and tool output never leave the machine.
+
+## Checking the seat
+
+`SOLIN_DEBUG_PERCH=1 dotnet run` sits her on the first window she can reach
+three seconds after start and reports it, or lists every window with the
+reason it was refused. `SOLIN_DEBUG_WINDOWS=2` dumps the raw window list.
 
 ## Build and run on macOS
 

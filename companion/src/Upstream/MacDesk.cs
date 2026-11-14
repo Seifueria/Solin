@@ -13,6 +13,7 @@ namespace Solin.Companion.Upstream
         internal long Window;
         internal PixelRect Bounds;
         internal int Pid;
+        internal string Owner;
     }
 
     internal sealed class MacDesk
@@ -30,9 +31,13 @@ namespace Solin.Companion.Upstream
         [DllImport(Foundation)] [return: MarshalAs(UnmanagedType.I1)] private static extern bool CFNumberGetValue(IntPtr number, long type, out double value);
         [DllImport(Foundation)] [return: MarshalAs(UnmanagedType.I1)] private static extern bool CFBooleanGetValue(IntPtr boolean);
         [DllImport(Foundation)] private static extern void CFRelease(IntPtr value);
+        [DllImport(Foundation)] [return: MarshalAs(UnmanagedType.I1)] private static extern bool CFStringGetCString(IntPtr str, byte[] buffer, long size, uint encoding);
+        private const uint Utf8 = 0x08000100;
         private const long SInt64Type = 4, DoubleType = 13;
 
-        private readonly IntPtr number, layer, frame, owner, alpha, onscreen;
+        private readonly IntPtr number, layer, frame, owner, alpha, onscreen, ownerName;
+        // Another copy of her, or her backend's windows, are never a seat.
+        private static readonly string[] Ours = { "Solin.Companion", "Solin" };
         private readonly long self = Environment.ProcessId;
         // Screen pixels per CoreGraphics point.
         internal double Scale = 1;
@@ -46,12 +51,44 @@ namespace Solin.Companion.Upstream
             owner = Key(library, "kCGWindowOwnerPID");
             alpha = Key(library, "kCGWindowAlpha");
             onscreen = Key(library, "kCGWindowIsOnscreen");
+            ownerName = Key(library, "kCGWindowOwnerName");
+        }
+
+        private static string Text(IntPtr info, IntPtr key)
+        {
+            IntPtr value = CFDictionaryGetValue(info, key);
+            if (value == IntPtr.Zero) return "";
+            byte[] buffer = new byte[256];
+            return CFStringGetCString(value, buffer, buffer.Length, Utf8) ? System.Text.Encoding.UTF8.GetString(buffer).TrimEnd('\0') : "";
         }
 
         private static IntPtr Key(IntPtr library, string name) { return Marshal.ReadIntPtr(NativeLibrary.GetExport(library, name)); }
 
         // Every other app's window on screen, front to back.
         internal List<Spot> Windows() { return List(OnScreenOnly | ExcludeDesktop, 0, true); }
+
+        // Every entry CoreGraphics returns, unfiltered, one per line: for finding out why a window is not a seat.
+        internal string Dump()
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            IntPtr array = CGWindowListCopyWindowInfo(OnScreenOnly | ExcludeDesktop, 0);
+            if (array == IntPtr.Zero) return "(no list)";
+            try
+            {
+                long count = CFArrayGetCount(array);
+                for (long i = 0; i < count; i++)
+                {
+                    IntPtr info = CFArrayGetValueAtIndex(array, i);
+                    IntPtr shown = CFDictionaryGetValue(info, onscreen);
+                    IntPtr box = CFDictionaryGetValue(info, frame);
+                    Area area = default;
+                    bool hasBox = box != IntPtr.Zero && CGRectMakeWithDictionaryRepresentation(box, out area);
+                    sb.Append("\n  #" + Whole(info, number) + " " + Text(info, ownerName) + " layer " + Whole(info, layer) + " on " + (shown != IntPtr.Zero && CFBooleanGetValue(shown)) + " alpha " + Real(info, alpha) + (hasBox ? " " + area.X + "," + area.Y + " " + area.Width + "x" + area.Height : " nobox"));
+                }
+            }
+            finally { CFRelease(array); }
+            return sb.ToString();
+        }
 
         // Where one window is now, or null when it has gone or is hidden.
         internal Spot Find(long window)
@@ -73,7 +110,7 @@ namespace Solin.Companion.Upstream
                     IntPtr info = CFArrayGetValueAtIndex(array, i);
                     long id = Whole(info, number);
                     long level = Whole(info, layer);
-                    if (level < 0 || level > 3 || Whole(info, owner) == self) continue;
+                    if (level < 0 || level > 3 || Whole(info, owner) == self || Array.IndexOf(Ours, Text(info, ownerName)) >= 0) continue;
                     IntPtr shown = CFDictionaryGetValue(info, onscreen);
                     if (showing && (shown == IntPtr.Zero || !CFBooleanGetValue(shown) || Real(info, alpha) <= 0.05)) continue;
                     IntPtr box = CFDictionaryGetValue(info, frame);
@@ -81,7 +118,7 @@ namespace Solin.Companion.Upstream
                     PixelRect bounds = new PixelRect((int)Math.Round(area.X * Scale), (int)Math.Round(area.Y * Scale), (int)Math.Round(area.Width * Scale), (int)Math.Round(area.Height * Scale));
                     // Menu bar items, tooltips and other slivers are no seat.
                     if (bounds.Width < 120 || bounds.Height < 60) continue;
-                    found.Add(new Spot { Window = id, Bounds = bounds, Pid = (int)Whole(info, owner) });
+                    found.Add(new Spot { Window = id, Bounds = bounds, Pid = (int)Whole(info, owner), Owner = Text(info, ownerName) });
                 }
             }
             finally { CFRelease(array); }
