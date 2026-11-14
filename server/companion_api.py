@@ -14,6 +14,8 @@ Solin-owned. Wraps the existing core_ai modules without changing them.
     POST /hook            a trimmed Claude Code hook event from hooks/solin_hook.py
     POST /say             {"text", "mood", "speak"}  a line of hers without the brain: shown, mood set, spoken if asked
     GET  /history?limit=N the last N exchanges from her memory: [{"user", "visible", "internal"}]
+    POST /greet           a one-line hello for the time of day, as a reply event (kind "greeting")
+    GET  /reminders       pending reminders; "remind me in 20 min to ..." in /chat sets one, fired as a reply (kind "reminder")
     GET  /settings        {"brain", "brains", "voice": {...}, "companion": {...}} from data/config.json
     POST /settings        {"voice": {...}, "companion": {...}}  merged into data/config.json, returns the result
     POST /brain           {"name": "ollama"}  switch the live brain
@@ -122,7 +124,7 @@ def broadcast(kind, data):
 # --- brains -------------------------------------------------------------------
 
 from core_ai import brains  # noqa: E402
-from core_ai.brains import bond  # noqa: E402
+from core_ai.brains import bond, reminders  # noqa: E402
 
 brain = brains.make_brain()
 
@@ -196,6 +198,11 @@ def chat():
     sid, current = session(data.get("session_id"))
     error = None
     context = bond.prompt_lines()
+    reminder = reminders.parse(text)
+    if reminder:
+        due, what = reminder
+        reminders.add(due, what)
+        context += f"\nThey just asked you to remind them to \"{what}\" {reminders.when(due)}. You've set it. Confirm in one short line, in your voice."
     try:
         visible, internal, mood = brain.reply(text, context)
         bond.note("chat")
@@ -275,6 +282,58 @@ def post_settings():
             return jsonify({"error": str(error), "settings": settings_view()}), 400
     broadcast("settings", {"companion": settings_view()["companion"]})
     return jsonify(settings_view())
+
+
+@app.post("/greet")
+def greet():
+    """A one-line hello for the time of day, in her voice, shown and spoken like a reply."""
+    data = request.get_json(silent=True) or {}
+    sid, current = session(data.get("session_id"))
+    now = datetime.now()
+    part = "morning" if now.hour < 12 else "afternoon" if now.hour < 18 else "evening" if now.hour < 23 else "late night"
+    context = bond.prompt_lines() + f"\nIt's {now.strftime('%A')} {part}, {now.strftime('%-I:%M %p').lower()}. They just started you up. Greet them in one short line, in your voice; no questions about tasks."
+    try:
+        visible, internal, mood = brain.reply("(you just came online)", context)
+    except Exception as failure:  # noqa: BLE001
+        print(f"[companion_api] greet failed: {failure}", file=sys.stderr)
+        return jsonify({"visible": None})
+    s = set_mood(sid, mood)
+    audio = None
+    if voice_default():
+        try:
+            from core_ai import speech
+            audio, _fresh = speech.speak(visible)
+        except Exception as failure:  # noqa: BLE001
+            print(f"[companion_api] voice: {failure}", file=sys.stderr)
+    broadcast("reply", {"session_id": sid, "visible": visible, "mood": s["mood"], "audio": audio, "kind": "greeting"})
+    return jsonify({"visible": visible, "mood": s["mood"], "audio": audio})
+
+
+@app.get("/reminders")
+def list_reminders():
+    return jsonify({"reminders": [{"due": r["due"], "when": reminders.when(r["due"]), "what": r["what"]} for r in reminders.pending()]})
+
+
+def reminder_ticker():
+    """Every ten seconds, fires reminders that have come due as reminder replies."""
+    while True:
+        time.sleep(10)
+        try:
+            for r in reminders.due_now():
+                line = r["what"]
+                audio = None
+                if voice_default():
+                    try:
+                        from core_ai import speech
+                        audio, _fresh = speech.speak("reminder: " + line)
+                    except Exception as failure:  # noqa: BLE001
+                        print(f"[companion_api] voice: {failure}", file=sys.stderr)
+                broadcast("reply", {"session_id": DEFAULT_SESSION, "visible": line, "mood": "curious", "audio": audio, "kind": "reminder"})
+        except Exception as failure:  # noqa: BLE001
+            print(f"[companion_api] reminder ticker: {failure}", file=sys.stderr)
+
+
+threading.Thread(target=reminder_ticker, daemon=True).start()
 
 
 @app.get("/history")
