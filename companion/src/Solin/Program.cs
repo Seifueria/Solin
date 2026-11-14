@@ -57,6 +57,19 @@ namespace Solin.Companion
         private FlourishWindow flourish;
         private PointerWindow pointer;
         private readonly Vitals vitals = new Vitals();
+        private TrayIcon tray;
+        private bool hidden;
+        // Claude's last sign of life, for the "thinking it over" ticker when a task goes quiet.
+        private DateTime agentSeen = DateTime.MinValue;
+        private int quietStage;
+        private readonly DispatcherTimer quiet = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        private int tourStep = -1;
+        private static readonly (string title, string line)[] Tour =
+        {
+            ("Hey. I'm Solin.", "This is me on your desk. Drag me anywhere. Drop me on a window and I'll sit on it; let go over nothing and I'll float."),
+            ("Talk to me.", "Double-click me for a quick line, or right-click for my menu: chat window, settings, mini form, sleep, quit."),
+            ("I watch Claude Code too.", "While it works I'll show what it's doing. When it needs you I'll come find your cursor and point at its window."),
+        };
         private readonly DispatcherTimer vitalsTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         // Apps Claude Code tends to live in, frontmost first.
         private static readonly string[] ClaudeHomes = { "Claude", "Terminal", "iTerm2", "Warp", "Ghostty", "kitty", "Alacritty", "Code", "Cursor", "Windsurf" };
@@ -223,15 +236,7 @@ namespace Solin.Companion
             {
                 switch (act)
                 {
-                    case "bring":
-                        {
-                            Screen screen = sprite.Screens.Primary;
-                            if (screen == null) break;
-                            PixelRect area = screen.WorkingArea;
-                            sfx.Play("zap");
-                            sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
-                            break;
-                        }
+                    case "bring": settingsActionBring(); break;
                     case "mini": SetMini(!sprite.Mini); break;
                     case "lie": if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); break;
                     case "quit": if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desk) desk.Shutdown(); break;
@@ -267,6 +272,10 @@ namespace Solin.Companion
                 });
             };
             vitalsTimer.Tick += async delegate { await vitals.Poll(); };
+            Tray();
+            quiet.Tick += delegate { QuietTicker(); };
+            quiet.Start();
+            card.Acknowledged += delegate { NextTourCard(); };
             sprite.Opened += async delegate
             {
                 presence.Start();
@@ -286,6 +295,9 @@ namespace Solin.Companion
                     chat.SetBrain(await backend.BrainName());
                     using (System.Text.Json.JsonDocument doc = await backend.Settings())
                         if (doc != null && doc.RootElement.TryGetProperty("companion", out System.Text.Json.JsonElement c)) ApplyCompanion(c);
+                    using (System.Text.Json.JsonDocument doc2 = await backend.Settings())
+                        if (doc2 != null && doc2.RootElement.TryGetProperty("companion", out System.Text.Json.JsonElement c2) && !(c2.TryGetProperty("toured", out System.Text.Json.JsonElement t) && t.ValueKind == System.Text.Json.JsonValueKind.True))
+                            DispatcherTimer.RunOnce(StartTour, TimeSpan.FromSeconds(4.5));
                     // A hello for the time of day, once she has arrived.
                     if (Environment.GetEnvironmentVariable("SOLIN_QUIET_START") != "1") DispatcherTimer.RunOnce(() => _ = backend.Greet(), TimeSpan.FromSeconds(3.5));
                 }
@@ -321,6 +333,67 @@ namespace Solin.Companion
             menu.Items.Add(quit);
             menu.Opening += delegate { miniItem.Header = sprite.Mini ? "Full size" : "Mini form"; sleep.Header = sprite.Asleep ? "Wake up" : "Sleep"; lie.Header = sprite.Lying ? "Sit up" : "Lie down"; lie.IsEnabled = sprite.Seated; };
             return menu;
+        }
+
+        // Her glyph in the menu bar: show or hide her, bring her here, chat, settings, quit.
+        private void Tray()
+        {
+            try
+            {
+                tray = new TrayIcon { ToolTipText = "Solin" };
+                using (System.IO.Stream icon = Avalonia.Platform.AssetLoader.Open(new Uri("avares://Solin.Companion/Assets/tray.png")))
+                    tray.Icon = new WindowIcon(icon);
+                NativeMenu menu = new NativeMenu();
+                NativeMenuItem show = new NativeMenuItem("Hide Solin");
+                show.Click += delegate { hidden = !hidden; if (hidden) { sprite.Hide(); bubble.Hide(); pill.Clear(); card.Dismiss(); } else sprite.Show(); show.Header = hidden ? "Show Solin" : "Hide Solin"; };
+                NativeMenuItem bring = new NativeMenuItem("Bring here");
+                bring.Click += delegate { settingsActionBring(); };
+                NativeMenuItem chatItem = new NativeMenuItem("Chat window");
+                chatItem.Click += delegate { OpenChat(); };
+                NativeMenuItem settingsItem = new NativeMenuItem("Settings…");
+                settingsItem.Click += delegate { OpenSettings(); };
+                NativeMenuItem quitItem = new NativeMenuItem("Quit Solin");
+                quitItem.Click += delegate { if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desk) desk.Shutdown(); };
+                menu.Items.Add(show); menu.Items.Add(bring); menu.Items.Add(new NativeMenuItemSeparator()); menu.Items.Add(chatItem); menu.Items.Add(settingsItem); menu.Items.Add(new NativeMenuItemSeparator()); menu.Items.Add(quitItem);
+                tray.Menu = menu;
+                tray.IsVisible = true;
+            }
+            catch (Exception) { tray = null; }
+        }
+
+        private void settingsActionBring()
+        {
+            Screen screen = sprite.Screens.Primary;
+            if (screen == null) return;
+            PixelRect area = screen.WorkingArea;
+            if (hidden) { hidden = false; sprite.Show(); }
+            sfx.Play("zap");
+            sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
+        }
+
+        // A task that has gone quiet: after fifteen seconds the pill says she's waiting on Claude's thinking, after a minute that it's slow.
+        private void QuietTicker()
+        {
+            if (agentState != "working") return;
+            double silent = (DateTime.Now - agentSeen).TotalSeconds;
+            if (silent > 60 && quietStage < 2) { quietStage = 2; pill.Say("still thinking… slow one", 0, "CLAUDE"); sprite.React("dip"); }
+            else if (silent > 15 && quietStage < 1) { quietStage = 1; pill.Say("thinking it over…", 0, "CLAUDE"); }
+        }
+
+        // First run: three cards she walks you through, each dismissed with a button; remembered in the backend's config.
+        private void StartTour() { tourStep = -1; NextTourCard(); }
+
+        private void NextTourCard()
+        {
+            tourStep++;
+            if (tourStep >= Tour.Length)
+            {
+                tourStep = -1;
+                _ = backend.SaveSettings(new { companion = new { toured = true } });
+                return;
+            }
+            (string title, string line) = Tour[tourStep];
+            card.Show("hello", "SYNC", Card.Violet, title, line, null, tourStep == Tour.Length - 1 ? "GOT IT" : "NEXT");
         }
 
         // The typing box under her feet, centred.
@@ -405,6 +478,8 @@ namespace Solin.Companion
         {
             bool fresh = state != agentState;
             agentState = state;
+            agentSeen = DateTime.Now;
+            quietStage = 0;
             switch (state)
             {
                 case "working":
