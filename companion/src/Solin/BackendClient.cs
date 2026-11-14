@@ -25,6 +25,8 @@ namespace Solin.Companion
         internal event Action<bool> Speaking;
         internal event Action<bool> Connected;
         internal event Action<string, string> AgentChanged;
+        // The whole agent event: state, detail, project, and on done a report {actions, files[], seconds}.
+        internal event Action<JsonElement> AgentEvent;
         internal event Action<JsonElement> SettingsChanged;
 
         internal BackendClient(int port = DefaultPort, string sessionId = "solin")
@@ -184,7 +186,7 @@ namespace Solin.Companion
                             break;
                         case "speaking": Speaking?.Invoke(root.GetProperty("on").GetBoolean()); break;
                         case "settings": SettingsChanged?.Invoke(root.GetProperty("companion").Clone()); break;
-                        case "agent": AgentChanged?.Invoke(root.GetProperty("state").GetString(), root.TryGetProperty("detail", out JsonElement d) ? d.GetString() : ""); break;
+                        case "agent": AgentEvent?.Invoke(root.Clone()); AgentChanged?.Invoke(root.GetProperty("state").GetString(), root.TryGetProperty("detail", out JsonElement d) ? d.GetString() : ""); break;
                     }
                 }
             }

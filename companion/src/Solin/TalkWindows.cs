@@ -70,6 +70,8 @@ namespace Solin.Companion
     internal sealed class Portrait : Control
     {
         internal Func<(Clip clip, int cell, Clip mouth, int mouthCell)> Frame;
+        // A circle by default; square for the mission cards.
+        internal bool Round = true;
         private readonly DispatcherTimer refresh = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
 
         internal Portrait(double size)
@@ -83,7 +85,7 @@ namespace Solin.Companion
         public override void Render(DrawingContext context)
         {
             Rect box = new Rect(0, 0, Bounds.Width, Bounds.Height);
-            context.FillRectangle(new SolidColorBrush(Color.FromArgb(255, 30, 24, 36)), box, (float)(Bounds.Width / 2));
+            context.FillRectangle(new SolidColorBrush(Color.FromArgb(255, 30, 24, 36)), box, Round ? (float)(Bounds.Width / 2) : 0f);
             if (Frame == null) return;
             (Clip clip, int cell, Clip mouth, int mouthCell) = Frame();
             if (clip == null) return;
@@ -91,13 +93,13 @@ namespace Solin.Companion
             double cropTall = clip.Wide * 0.95;
             Rect source = new Rect(cell * clip.Wide, clip.Tall * 0.02, clip.Wide, cropTall);
             Rect dest = new Rect(box.X - box.Width * 0.08, box.Y - box.Height * 0.02, box.Width * 1.16, box.Height * 1.16 * cropTall / clip.Wide);
-            using (context.PushGeometryClip(new EllipseGeometry(box)))
+            using (context.PushGeometryClip(Round ? (Geometry)new EllipseGeometry(box) : new RectangleGeometry(box)))
             {
                 context.DrawImage(clip.Art(false), source, dest);
                 if (mouth != null && mouthCell >= 0)
                     context.DrawImage(mouth.Art(false), new Rect(mouthCell * mouth.Wide, mouth.Tall * 0.02, mouth.Wide, cropTall), dest);
             }
-            context.DrawEllipse(null, new Pen(TalkLook.AccentBrush, 2), box.Center, box.Width / 2 - 1, box.Height / 2 - 1);
+            if (Round) context.DrawEllipse(null, new Pen(TalkLook.AccentBrush, 2), box.Center, box.Width / 2 - 1, box.Height / 2 - 1);
         }
     }
 
