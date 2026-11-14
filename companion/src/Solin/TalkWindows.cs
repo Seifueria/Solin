@@ -155,6 +155,7 @@ namespace Solin.Companion
         private readonly Portrait face = new Portrait(44);
         private readonly DispatcherTimer typing = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(28) };
         private readonly DispatcherTimer linger = new DispatcherTimer();
+        private readonly DispatcherTimer follow = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         private string full = "";
         private int shown;
         private Func<PixelPoint> anchor;
@@ -199,6 +200,7 @@ namespace Solin.Companion
                 }
             };
             linger.Tick += delegate { linger.Stop(); Hide(); };
+            follow.Tick += delegate { if (IsVisible) Place(); else follow.Stop(); };
         }
 
         // Called when she moves, so the bubble stays over her head.
@@ -216,6 +218,7 @@ namespace Solin.Companion
             linger.Stop();
             Place();
             Show();
+            follow.Start();
             Speaking?.Invoke(true);
             typing.Start();
         }
@@ -230,11 +233,13 @@ namespace Solin.Companion
         }
     }
 
-    // One short line over her head: what the coding agent is doing right now.
+    // One short line over her head: what the coding agent is doing right now, as a tag: a red "CLAUDE" chip and the action.
     internal sealed class Pill : Window
     {
-        private readonly TextBlock text = new TextBlock { Foreground = TalkLook.Ink, FontSize = 12, FontFamily = TalkLook.Mono };
+        private readonly TextBlock text = new TextBlock { Foreground = TalkLook.Ink, FontSize = 12, FontFamily = TalkLook.Mono, VerticalAlignment = VerticalAlignment.Center };
+        private readonly TextBlock chip = new TextBlock { Foreground = Brushes.White, FontSize = 9, FontFamily = TalkLook.Mono, Text = "CLAUDE", VerticalAlignment = VerticalAlignment.Center };
         private readonly DispatcherTimer linger = new DispatcherTimer();
+        private readonly DispatcherTimer follow = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         private Func<PixelPoint> anchor;
 
         internal Pill()
@@ -242,30 +247,47 @@ namespace Solin.Companion
             TalkLook.Floating(this);
             ShowActivated = false;
             IsHitTestVisible = false;
-            Content = TalkLook.Card(new Border { Padding = new Thickness(10, 3), Child = text }, 9);
+            StackPanel row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            row.Children.Add(new Border { Background = new SolidColorBrush(Color.FromRgb(255, 33, 82)), CornerRadius = new CornerRadius(2), Padding = new Thickness(5, 1), Child = chip, VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(text);
+            Content = new Border { Background = TalkLook.Plate, BorderBrush = TalkLook.PlateEdge, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 4, 10, 4), Child = row, BoxShadow = TalkLook.Shadow, Margin = new Thickness(8, 4, 8, 14) };
             linger.Tick += delegate { linger.Stop(); Hide(); };
+            // Follows her every few frames while shown, so teleports, walks and drags never leave it behind.
+            follow.Tick += delegate { if (IsVisible) Reposition(); else follow.Stop(); };
         }
 
         internal void Follow(Func<PixelPoint> anchorPoint) { anchor = anchorPoint; }
 
         // Shows the line; with a lifetime it fades by itself, otherwise it stays until the next line or Clear().
-        internal void Say(string line, double seconds = 0)
+        internal void Say(string line, double seconds = 0, string who = "CLAUDE")
         {
             text.Text = line;
+            chip.Text = who;
             linger.Stop();
             Show();
             Reposition();
+            follow.Start();
             if (seconds > 0) { linger.Interval = TimeSpan.FromSeconds(seconds); linger.Start(); }
         }
 
-        internal void Clear() { linger.Stop(); Hide(); }
+        internal void Clear() { linger.Stop(); follow.Stop(); Hide(); }
 
         internal void Reposition()
         {
             if (anchor == null || !IsVisible) return;
             PixelPoint at = anchor();
             double scale = Screens.Primary?.Scaling ?? 1;
-            Position = new PixelPoint(at.X - (int)(Bounds.Width * scale) / 2, at.Y - (int)(Bounds.Height * scale));
+            int wide = (int)(Bounds.Width * scale), tall = (int)(Bounds.Height * scale);
+            if (wide == 0) return;
+            PixelPoint want = new PixelPoint(at.X - wide / 2, at.Y - tall);
+            // Kept inside the screen she is on.
+            Screen screen = Screens.ScreenFromPoint(at) ?? Screens.Primary;
+            if (screen != null)
+            {
+                PixelRect area = screen.WorkingArea;
+                want = new PixelPoint(Math.Clamp(want.X, area.X, Math.Max(area.X, area.Right - wide)), Math.Max(area.Y, want.Y));
+            }
+            if (want != Position) Position = want;
         }
     }
 }
