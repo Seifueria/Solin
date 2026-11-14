@@ -99,6 +99,13 @@ whether she starts mini. Everything is stored by the backend in
 curl -XPOST -H 'Content-Type: application/json' -d '{"companion":{"wander":0}}' localhost:47831/settings
 ```
 
+## Flourishes
+
+Fast movement, a throw or a teleport landing, leaves afterimages of her.
+When Claude runs a command, edits a file or goes on the web, sparks fly off
+her hand. An error or a hard landing flashes a red impact frame and tears a
+few slices of her sideways for a moment; her idle glitch tic tears too.
+
 ## Sounds
 
 Small cues made in code, no files: a blip when poked, a zap on teleports,
@@ -124,7 +131,10 @@ plan allows it.
 
 With the hook installed she acts out what Claude Code is doing. A short pill
 over her head shows the current tool. When Claude needs you she teleports
-next to your cursor and bristles until you answer. When a turn finishes she
+next to your cursor, bristles until you answer, shows a WAITING card and
+points a dashed line at the window Claude lives in, brackets on its corners
+and a CLAUDE chip. When a turn finishes she shows a DONE card with what was
+done and how long it took. When a turn finishes she
 teleports to the middle of the screen, bows, and reads out the last line.
 An error makes her shake it off.
 

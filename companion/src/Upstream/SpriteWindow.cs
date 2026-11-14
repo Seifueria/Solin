@@ -168,8 +168,11 @@ namespace Solin.Companion.Upstream
         internal Action FlightLanded;
         private PixelPoint? teleportTo;
         private bool teleportLanding;
-        // Fired once she has landed after a teleport.
+        // Fired once she has landed after a teleport, and when one begins.
         internal Action Landed;
+        internal Action TeleportStarted;
+        // Her body's centre in screen pixels, for effects drawn in other windows.
+        internal PixelPoint ScreenCentre { get { return new PixelPoint(Position.X + Px(body.Centre.X), Position.Y + Px(body.Centre.Y - body.Lift)); } }
         // Body plus anything Solin draws over her, like the entrance.
         internal readonly Panel Layers = new Panel();
         internal Point BodyCentre { get { return body.Centre; } }
@@ -210,6 +213,30 @@ namespace Solin.Companion.Upstream
         internal int ShownCell { get { return body.Cell; } }
         internal int ShownMouth { get { return body.Talking; } }
         internal Clip ShownMouthClip { get { return body.Mouth; } }
+        // The frame as drawn: clip, cell, source rect, destination rect and the pose, for effects that echo her.
+        internal (Clip clip, int cell, Rect place, Matrix pose, bool left) DrawnFrame()
+        {
+            Clip shown = body.Shown;
+            return shown == null ? (null, 0, default, Matrix.Identity, false) : (shown, body.Cell, body.Place(shown), body.Pose, body.FacingLeft);
+        }
+        // A short burst of slice glitching, like the base's tic but without the strip; decays on its own.
+        private double glitchUntil = -1;
+        internal void Jitter(double seconds) { glitchUntil = Now + seconds; }
+        // The frontmost window of any of these apps, in screen pixels, or null. For pointing at where Claude is.
+        internal PixelRect? WindowOf(params string[] owners)
+        {
+            if (desk == null) return null;
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            foreach (Spot spot in desk.Windows())
+                foreach (string owner in owners)
+                    if (string.Equals(spot.Owner, owner, StringComparison.OrdinalIgnoreCase)) return spot.Bounds;
+            return null;
+        }
+        // Her hand in screen pixels.
+        internal PixelPoint HandScreen { get { Point h = HandPoint; return new PixelPoint(Position.X + Px(h.X), Position.Y + Px(h.Y)); } }
+
+        // Her hand, roughly, in her window's points: where sparks come from.
+        internal Point HandPoint { get { return new Point(body.Centre.X + (body.FacingLeft ? -1 : 1) * body.Size * 0.22, body.Centre.Y + body.Size * 0.05 - body.Lift); } }
 
         // A short, visible reaction laid over the idle: a dip of acknowledgement, a jolt of annoyance, or a shake of refusal.
         private string reaction;
@@ -264,10 +291,12 @@ namespace Solin.Companion.Upstream
         internal void Teleport(PixelPoint target)
         {
             seat = null;
+            floating = false;
             body.Lift = 0;
             teleportTo = target;
             teleportLanding = false;
             Play(glitch);
+            TeleportStarted?.Invoke();
         }
 
         // Her hip, in pixels from her window's top-left.
@@ -305,8 +334,16 @@ namespace Solin.Companion.Upstream
             body.Lift = lift / (Screens.Primary?.Scaling ?? 1);
         }
 
+        // Within a body's height of the bottom of her screen: close enough to just land.
+        private bool NearFloor()
+        {
+            Screen screen = Screens.ScreenFromPoint(new PixelPoint(Position.X + Px(Width / 2), Position.Y + Px(Height))) ?? Screens.Primary;
+            return screen == null || Position.Y + Px(Height) > screen.WorkingArea.Bottom - Px(body.Size);
+        }
+
         private void Sit(Spot spot)
         {
+            floating = false;
             seat = spot;
             seatOffset = Position.X + Hip.X - spot.Bounds.X;
             Settle(spot);
@@ -434,9 +471,23 @@ namespace Solin.Companion.Upstream
             return null;
         }
 
+        // Let go in mid-air with nothing under her, she hovers where she is instead of dropping. Solin's choice over the base.
+        private bool floating;
+        internal bool Floating { get { return floating; } }
+
+        // Whether a window top edge lies somewhere below her hip on this screen.
+        private bool LedgeBelow()
+        {
+            int hipX = Position.X + Hip.X, hipY = Position.Y + Hip.Y;
+            Screen screen = Screens.ScreenFromPoint(new PixelPoint(hipX, hipY)) ?? Screens.Primary;
+            int floor = screen == null ? hipY + 4000 : screen.WorkingArea.Bottom;
+            return LedgeCrossed(hipX, hipY, floor) != null;
+        }
+
         // Lets her go from wherever she is: she falls, catching the first ledge below or landing on the floor.
         private void Drop()
         {
+            floating = false;
             seat = null;
             body.Lift = 0;
             flying = true;
@@ -449,7 +500,7 @@ namespace Solin.Companion.Upstream
             lastTick = now;
             if (flying) Fly(dt);
             if (seat != null && !pressed && !flying) HoldSeat(now);
-            bool onFloor = seat == null && !flying && !pressed && !Asleep;
+            bool onFloor = seat == null && !flying && !pressed && !Asleep && !floating;
             if (walking && (pressed || flying || seat != null || Asleep)) { walking = false; }
             if (walking) Walk(dt);
             bool quiet = !Busy && !pressed && !flying && !dragging && !walking && danceUntil < 0 && clip != glitch && clip != perchGlitch && clip != grin && !Asleep && teleportTo == null && arriveAt < 0;
@@ -541,6 +592,8 @@ namespace Solin.Companion.Upstream
             // Breath and tilt scale with her size so they read the same at every size.
             double scale = body.Size / 240;
             body.Breathe = settled ? Math.Sin(now * BreathRate) * BreathDepth * scale : 0;
+            // Hovering, she rides a slow swell on top of her breathing.
+            if (floating && settled) body.Breathe += Math.Sin(now * 0.9) * 7 * scale;
             body.Tilt = walking ? Math.Sin(now * 9) * 1.2 : settled ? Math.Sin(now * TiltRate) * TiltDepth : flying ? Math.Clamp(flyVx / 60, -25, 25) : 0;
             double age = now - reactionAt;
             if (settled && age >= 0 && age < ReactionLife)
@@ -550,6 +603,7 @@ namespace Solin.Companion.Upstream
                 if (reaction == "jolt") { body.Breathe += 14 * dip * scale; body.Tilt -= 8 * dip; }
                 if (reaction == "shake" && age < 0.5) body.Tilt += 8 * Math.Sin(age * 50) * (1 - age * 2);
             }
+            body.Glitch = glitchUntil > now ? Math.Min(1, (glitchUntil - now) * 2) : clip == glitch || clip == perchGlitch ? 0.6 : 0;
             body.Shown = shown;
             body.Cell = cell;
             body.Mouth = idleMouth;
@@ -571,6 +625,7 @@ namespace Solin.Companion.Upstream
             downAt = this.PointToScreen(at);
             grab = new PixelPoint(downAt.X - Position.X, downAt.Y - Position.Y);
             flying = false;
+            floating = false;
             seat = null;
             body.Lift = 0;
             dragTrail.Clear();
@@ -621,7 +676,9 @@ namespace Solin.Companion.Upstream
                 Dragged?.Invoke();
                 // Right on a ledge she sits; anywhere else she drops, onto the first ledge below or the floor, like the base.
                 Spot ledge = LedgeUnder(new PixelPoint(Position.X + Hip.X, Position.Y + Hip.Y), 24);
-                if (ledge != null) Sit(ledge); else Drop();
+                if (ledge != null) Sit(ledge);
+                else if (LedgeBelow() || NearFloor()) Drop();
+                else floating = true;
             }
             else
             {

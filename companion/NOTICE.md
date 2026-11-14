@@ -50,6 +50,11 @@ this notice. The list below is kept current.
 | assets/sprites/dance.png | same | placeholder, victory dance |
 | assets/sprites/grin.png | same | placeholder, pleased |
 
+## Fonts
+
+Share Tech Mono (assets/fonts/ShareTechMono-Regular.ttf) is by Carrois Type
+Design under the SIL Open Font License 1.1; its licence text is beside it.
+
 ## Ideas described, no code copied
 
 Feature ideas were taken from reading these projects. No code or art from
