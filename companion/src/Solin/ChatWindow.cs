@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Controls.Documents;
 using Avalonia.Media;
 using Solin.Companion.Upstream;
 
@@ -14,7 +15,7 @@ namespace Solin.Companion
     // A floating conversation with her: past exchanges from her memory, new ones as they happen, her face and mood up top.
     internal sealed class ChatWindow : Window
     {
-        private readonly StackPanel messages = new StackPanel { Spacing = 8, Margin = new Thickness(14, 10) };
+        private readonly StackPanel messages = new StackPanel { Spacing = 4, Margin = new Thickness(14, 10) };
         private readonly ScrollViewer scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Height = 360 };
         private readonly TextBox box = new TextBox { Watermark = "say something", AcceptsReturn = false, Foreground = TalkLook.Ink, Background = Brushes.Transparent, BorderThickness = new Thickness(0), FontSize = 14, Width = 300 };
         private readonly TextBlock tag = new TextBlock { Foreground = TalkLook.Faint, FontSize = 11, Text = "live" };
@@ -124,18 +125,24 @@ namespace Solin.Companion
             scroll.ScrollToEnd();
         }
 
+        // A transcript line in the terminal manner: "> you: ..." dim and italic, "SOLIN: ..." with her name in the accent.
         private static Control Line(string text, bool you, string mood)
         {
-            TextBlock block = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, MaxWidth = 260, FontSize = 13, LineHeight = 19, Foreground = TalkLook.Ink };
-            StackPanel inner = new StackPanel { Spacing = 2 };
-            if (!you && !string.IsNullOrEmpty(mood) && mood != "neutral") inner.Children.Add(new TextBlock { Text = mood, FontSize = 10, Foreground = TalkLook.Faint });
-            inner.Children.Add(block);
-            return new Border
+            TextBlock block = new TextBlock { TextWrapping = TextWrapping.Wrap, MaxWidth = 320, FontSize = 13, LineHeight = 19, FontFamily = TalkLook.Mono };
+            if (you)
             {
-                Child = inner, Padding = new Thickness(10, 7), CornerRadius = new CornerRadius(12),
-                Background = you ? new SolidColorBrush(Color.FromArgb(70, 232, 72, 120)) : new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)),
-                HorizontalAlignment = you ? HorizontalAlignment.Right : HorizontalAlignment.Left,
-            };
+                block.Foreground = TalkLook.Dim;
+                block.FontStyle = FontStyle.Italic;
+                block.Text = "> you: " + text;
+            }
+            else
+            {
+                block.Inlines = new InlineCollection();
+                block.Inlines.Add(new Run("SOLIN: ") { Foreground = TalkLook.AccentBrush, FontWeight = FontWeight.Bold });
+                block.Inlines.Add(new Run(text) { Foreground = TalkLook.Ink });
+                if (!string.IsNullOrEmpty(mood) && mood != "neutral") block.Inlines.Add(new Run("  [" + mood + "]") { Foreground = TalkLook.Faint, FontSize = 11 });
+            }
+            return new Border { Child = block, Padding = new Thickness(2, 2), HorizontalAlignment = HorizontalAlignment.Left };
         }
     }
 }

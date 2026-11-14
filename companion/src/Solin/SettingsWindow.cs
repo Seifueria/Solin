@@ -34,12 +34,21 @@ namespace Solin.Companion
         {
             TalkLook.Floating(this);
             ShowActivated = true;
-            StackPanel form = new StackPanel { Spacing = 10, Margin = new Thickness(16, 12, 16, 14) };
-            form.Children.Add(Heading("SETTINGS"));
+            StackPanel form = new StackPanel { Spacing = 8, Margin = new Thickness(16, 12, 16, 14) };
+            // The base's Mainframe layout, in Solin's colours: a title bar, then sections with a red label and a rule.
+            Grid title = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+            title.Children.Add(new TextBlock { Text = "SOLIN · CORE", FontFamily = TalkLook.Mono, FontSize = 14, FontWeight = FontWeight.Bold, Foreground = TalkLook.Ink, LetterSpacing = 2 });
+            TextBlock version = new TextBlock { Text = "v0.1", FontFamily = TalkLook.Mono, FontSize = 10, Foreground = TalkLook.Dim, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(version, 1);
+            title.Children.Add(version);
+            form.Children.Add(title);
+            form.Children.Add(Section("BRAIN >", "Pick one. Only one brain runs at a time."));
             form.Children.Add(Row("Brain", brain));
+            form.Children.Add(Section("VOICE >", "Her voice, through ElevenLabs."));
             form.Children.Add(speak);
             form.Children.Add(Row("Voice", voiceId));
             form.Children.Add(Row("Model", modelId));
+            form.Children.Add(Section("SOLIN >", "How she behaves on your desk."));
             form.Children.Add(Row("Sounds", sounds));
             form.Children.Add(Row("Wandering", wander));
             form.Children.Add(Row("Sleep after (min)", sleepAfter));
@@ -70,12 +79,22 @@ namespace Solin.Companion
             PointerReleased += delegate { dragFrom = null; };
         }
 
-        private static TextBlock Heading(string text) { return new TextBlock { Text = text, Foreground = TalkLook.Ink, FontSize = 11, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 4) }; }
+        private static Control Section(string label, string hint)
+        {
+            StackPanel head = new StackPanel { Spacing = 2, Margin = new Thickness(0, 10, 0, 2) };
+            StackPanel row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            row.Children.Add(new Border { Width = 3, Height = 14, Background = TalkLook.AccentBrush, VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(new TextBlock { Text = label, FontFamily = TalkLook.Mono, FontSize = 12, FontWeight = FontWeight.Bold, Foreground = TalkLook.AccentBrush });
+            head.Children.Add(row);
+            head.Children.Add(new TextBlock { Text = hint, FontFamily = TalkLook.Mono, FontSize = 10, Foreground = TalkLook.Dim, Margin = new Thickness(11, 0, 0, 0) });
+            head.Children.Add(new Border { Height = 1, Background = TalkLook.PlateEdge, Margin = new Thickness(0, 4, 0, 0) });
+            return head;
+        }
 
         private static Control Row(string label, Control control)
         {
             Grid row = new Grid { ColumnDefinitions = new ColumnDefinitions("150,*") };
-            TextBlock name = new TextBlock { Text = label, Foreground = TalkLook.Faint, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            TextBlock name = new TextBlock { Text = label, Foreground = TalkLook.Faint, FontSize = 12, FontFamily = TalkLook.Mono, VerticalAlignment = VerticalAlignment.Center };
             row.Children.Add(name);
             Grid.SetColumn(control, 1);
             row.Children.Add(control);

@@ -246,6 +246,9 @@ namespace Solin.Companion
             menu.Items.Add(chatItem);
             MenuItem talk = new MenuItem { Header = "Talk to her" };
             talk.Click += delegate { typer.Open(new PixelPoint(sprite.Position.X + Px(sprite.Width / 2) - Px(160), sprite.Position.Y + Px(sprite.Height) - Px(30))); };
+            MenuItem lie = new MenuItem { Header = "Lie down" };
+            lie.Click += delegate { if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); };
+            menu.Items.Add(lie);
             MenuItem sleep = new MenuItem { Header = "Sleep" };
             sleep.Click += delegate { if (sprite.Asleep) sprite.Wake(); else sprite.Sleep(); };
             MenuItem settingsItem = new MenuItem { Header = "Settings…" };
@@ -258,7 +261,7 @@ namespace Solin.Companion
             menu.Items.Add(sleep);
             menu.Items.Add(new Separator());
             menu.Items.Add(quit);
-            menu.Opening += delegate { miniItem.Header = sprite.Mini ? "Full size" : "Mini form"; sleep.Header = sprite.Asleep ? "Wake up" : "Sleep"; };
+            menu.Opening += delegate { miniItem.Header = sprite.Mini ? "Full size" : "Mini form"; sleep.Header = sprite.Asleep ? "Wake up" : "Sleep"; lie.Header = sprite.Lying ? "Sit up" : "Lie down"; lie.IsEnabled = sprite.Seated; };
             return menu;
         }
 

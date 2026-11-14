@@ -49,6 +49,9 @@ this notice. The list below is kept current.
 | assets/sprites/walk.png | same | placeholder, wandering |
 | assets/sprites/dance.png | same | placeholder, victory dance |
 | assets/sprites/grin.png | same | placeholder, pleased |
+| assets/sprites/laydown.png | same | placeholder, lying on a window |
+| assets/sprites/laydown_talk.png | same | placeholder, talking lying down |
+| assets/sprites/laydown_blink.png | same | placeholder, blink lying down |
 
 ## Fonts
 
