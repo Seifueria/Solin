@@ -54,6 +54,7 @@ namespace Solin.Companion
         private SettingsWindow settings;
         private FxLayer trail, fx;
         private Card card;
+        private FlourishWindow flourish;
         private string agentProject;
         private static readonly string[] DoneLines = { "Mission accomplished.", "Done. Told you.", "Wrapped. Go look.", "That's handled." };
         private static readonly string[] WaitLines = { "Waiting on your go-ahead.", "Claude needs you.", "It's asking. Answer it." };
@@ -93,6 +94,7 @@ namespace Solin.Companion
                 chat = new ChatWindow();
                 settings = new SettingsWindow();
                 card = new Card();
+                flourish = new FlourishWindow();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
@@ -160,7 +162,15 @@ namespace Solin.Companion
             };
             bubble.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
             bubble.Speaking += delegate(bool on) { Mouth(on); sprite.Busy = on; if (on) sfx.Play("tick"); };
-            sprite.Landed += delegate { sprite.Jitter(0.25); if (agentState == "done") sprite.Dance(4); };
+            flourish.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
+            // Leaving: she breaks into shards. Arriving: a column of light where she reforms. Done: speed lines and her face in a cut-in.
+            sprite.TeleportStarted += delegate { flourish.Shatter(sprite.ScreenCentre, sprite.BodySize); };
+            sprite.Landed += delegate
+            {
+                sprite.Jitter(0.25);
+                flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
+                if (agentState == "done") { flourish.Burst(sprite.ScreenCentre, sprite.BodySize); sprite.Dance(4); }
+            };
             voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => Mouth(on)); };
             bubble.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             pill.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.04)));

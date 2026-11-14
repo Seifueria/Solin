@@ -168,8 +168,11 @@ namespace Solin.Companion.Upstream
         internal Action FlightLanded;
         private PixelPoint? teleportTo;
         private bool teleportLanding;
-        // Fired once she has landed after a teleport.
+        // Fired once she has landed after a teleport, and when one begins.
         internal Action Landed;
+        internal Action TeleportStarted;
+        // Her body's centre in screen pixels, for effects drawn in other windows.
+        internal PixelPoint ScreenCentre { get { return new PixelPoint(Position.X + Px(body.Centre.X), Position.Y + Px(body.Centre.Y - body.Lift)); } }
         // Body plus anything Solin draws over her, like the entrance.
         internal readonly Panel Layers = new Panel();
         internal Point BodyCentre { get { return body.Centre; } }
@@ -280,6 +283,7 @@ namespace Solin.Companion.Upstream
             teleportTo = target;
             teleportLanding = false;
             Play(glitch);
+            TeleportStarted?.Invoke();
         }
 
         // Her hip, in pixels from her window's top-left.
