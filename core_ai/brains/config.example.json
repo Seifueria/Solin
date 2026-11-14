@@ -1,0 +1,12 @@
+{
+  "brain": "auto",
+  "brains": {
+    "anthropic":  { "model": "claude-sonnet-5-5", "key_env": "ANTHROPIC_API_KEY" },
+    "claude-cli": { "path": "claude", "model": "sonnet" },
+    "gemini":     { "model": "gemini-2.5-flash", "key_env": "GEMINI_API_KEY",
+                    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai" },
+    "openai":     { "model": "gpt-4o-mini", "key_env": "OPENAI_API_KEY", "base_url": "https://api.openai.com/v1" },
+    "ollama":     { "model": "gemma4:e4b", "base_url": "http://127.0.0.1:11434", "small": true }
+  },
+  "auto_order": ["anthropic", "claude-cli", "gemini", "ollama", "openai"]
+}
