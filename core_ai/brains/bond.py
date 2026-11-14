@@ -47,6 +47,12 @@ FEELINGS = {
     "agent_needs_you": ("Claude is waiting on them and you've been trying to get their attention.", 6),
     "agent_done": ("You just watched Claude finish a job for them; you're pleased on their behalf.", 10),
     "agent_error": ("Claude just hit an error; you're wary and a bit protective.", 8),
+    "unplugged": ("They just pulled the charger; you're running on battery and a little watchful.", 10),
+    "battery_low": ("The battery is getting low and you're feeling it.", 15),
+    "battery_critical": ("The battery is almost gone. You're not calm about it.", 15),
+    "offline": ("The network just dropped. You feel cut off.", 10),
+    "online": ("The network is back; relief.", 5),
+    "hot": ("The machine is running hot under you; it's uncomfortable.", 10),
 }
 
 _lock = threading.Lock()

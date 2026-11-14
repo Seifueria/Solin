@@ -56,6 +56,8 @@ namespace Solin.Companion
         private Card card;
         private FlourishWindow flourish;
         private PointerWindow pointer;
+        private readonly Vitals vitals = new Vitals();
+        private readonly DispatcherTimer vitalsTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         // Apps Claude Code tends to live in, frontmost first.
         private static readonly string[] ClaudeHomes = { "Claude", "Terminal", "iTerm2", "Warp", "Ghostty", "kitty", "Alacritty", "Code", "Cursor", "Windsurf" };
         private string agentProject;
@@ -235,9 +237,31 @@ namespace Solin.Companion
             chat.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             mood.Changed += delegate(MoodState state) { chat.SetMood(state.Mood); };
             presence.Tick += delegate { Presence(); };
+            // The Mac's own state: she remarks on chargers, low battery, lost network and heavy load.
+            vitals.Changed += delegate(string kind, string detail)
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _ = backend.Event(kind);
+                    switch (kind)
+                    {
+                        case "battery_critical": sfx.Play("buzz"); card.Show("mac", "BATTERY", Card.Red, "Plug me in.", detail, null, null, 20); sprite.React("shake"); break;
+                        case "battery_low": card.Show("mac", "BATTERY", Card.Red, "Running low.", detail, null, null, 12); sprite.React("jolt"); break;
+                        case "unplugged": pill.Say(detail, 6, "MAC"); sprite.React("jolt"); break;
+                        case "plugged": pill.Say(detail, 5, "MAC"); sprite.React("dip"); break;
+                        case "offline": sfx.Play("buzz"); card.Show("mac", "OFFLINE", Card.Violet, "Network's gone.", "i can still hear you, but my brain may not answer.", null, null, 12); sprite.Jitter(0.6); break;
+                        case "online": pill.Say(detail, 5, "MAC"); sprite.React("dip"); break;
+                        case "hot": pill.Say(detail, 8, "MAC"); sprite.React("shake"); break;
+                        case "cooled": pill.Say(detail, 4, "MAC"); break;
+                    }
+                });
+            };
+            vitalsTimer.Tick += async delegate { await vitals.Poll(); };
             sprite.Opened += async delegate
             {
                 presence.Start();
+                _ = vitals.Poll();
+                vitalsTimer.Start();
                 Entrance();
                 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS"))) Console.WriteLine("[windows] " + sprite.DescribeLedges());
                 if (SpriteWindow.DebugPerch)
