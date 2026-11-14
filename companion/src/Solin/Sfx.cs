@@ -11,7 +11,9 @@ namespace Solin.Companion
     internal sealed class Sfx
     {
         private const int Rate = 22050;
-        private readonly double level;
+        private double level;
+        // 0 to 1; the cues are re-rendered at the new level.
+        internal double Level { get { return level; } set { double next = Math.Clamp(value, 0, 1); if (Math.Abs(next - level) < 0.001) return; level = next; RenderAll(); } }
         private readonly string folder = Path.Combine(Path.GetTempPath(), "solin-sfx");
         private readonly Dictionary<string, string> files = new Dictionary<string, string>();
 
@@ -19,6 +21,12 @@ namespace Solin.Companion
         {
             string set = Environment.GetEnvironmentVariable("SOLIN_SFX");
             level = string.IsNullOrEmpty(set) ? 0.5 : set == "off" ? 0 : double.TryParse(set, out double v) ? Math.Clamp(v, 0, 1) : 0.5;
+            RenderAll();
+        }
+
+        private void RenderAll()
+        {
+            files.Clear();
             if (level <= 0) return;
             try
             {

@@ -48,7 +48,10 @@ namespace Solin.Companion
         private readonly DispatcherTimer presence = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         private double activeSeconds;
         private DateTime? sleptAt;
-        private const double SleepAfter = 8 * 60, PauseIs = 5 * 60, BreakAfter = 2 * 3600, LongAway = 20 * 60;
+        private const double PauseIs = 5 * 60, LongAway = 20 * 60;
+        // From settings: seconds; a break threshold of 0 turns the nudge off.
+        private double SleepAfter = 8 * 60, BreakAfter = 2 * 3600;
+        private SettingsWindow settings;
         private static readonly string[] WakeLines =
         {
             "[soft yawn] oh. you're back.", "[blink] mm. was i out long?", "[stretch] hey. missed you a bit. don't make it weird.",
@@ -78,6 +81,7 @@ namespace Solin.Companion
                 bubble = new Bubble();
                 pill = new Pill();
                 chat = new ChatWindow();
+                settings = new SettingsWindow();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
@@ -153,6 +157,18 @@ namespace Solin.Companion
             backend.AgentChanged += delegate(string state, string detail) { Dispatcher.UIThread.Post(() => Agent(state, detail)); };
             typer.Sent += delegate(string text) { chat.AddYou(text); _ = Ask(text); };
             chat.Sent += delegate(string text) { _ = Ask(text); };
+            settings.Applied += async delegate(object body)
+            {
+                (System.Text.Json.JsonDocument doc, string error) = await backend.SaveSettings(body);
+                using (doc)
+                {
+                    if (doc.RootElement.TryGetProperty("companion", out System.Text.Json.JsonElement c)) ApplyCompanion(c);
+                    else if (doc.RootElement.TryGetProperty("settings", out System.Text.Json.JsonElement st) && st.TryGetProperty("companion", out System.Text.Json.JsonElement c2)) ApplyCompanion(c2);
+                    chat.SetBrain(await backend.BrainName());
+                }
+                return error;
+            };
+            backend.SettingsChanged += delegate(System.Text.Json.JsonElement c) { Dispatcher.UIThread.Post(() => ApplyCompanion(c)); };
             chat.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             mood.Changed += delegate(MoodState state) { chat.SetMood(state.Mood); };
             presence.Tick += delegate { Presence(); };
@@ -171,6 +187,8 @@ namespace Solin.Companion
                     backend.Listen();
                     chat.Load(await backend.History());
                     chat.SetBrain(await backend.BrainName());
+                    using (System.Text.Json.JsonDocument doc = await backend.Settings())
+                        if (doc != null && doc.RootElement.TryGetProperty("companion", out System.Text.Json.JsonElement c)) ApplyCompanion(c);
                 }
             };
         }
@@ -188,6 +206,9 @@ namespace Solin.Companion
             talk.Click += delegate { typer.Open(new PixelPoint(sprite.Position.X + Px(sprite.Width / 2) - Px(160), sprite.Position.Y + Px(sprite.Height) - Px(30))); };
             MenuItem sleep = new MenuItem { Header = "Sleep" };
             sleep.Click += delegate { if (sprite.Asleep) sprite.Wake(); else sprite.Sleep(); };
+            MenuItem settingsItem = new MenuItem { Header = "Settings…" };
+            settingsItem.Click += delegate { OpenSettings(); };
+            menu.Items.Add(settingsItem);
             MenuItem quit = new MenuItem { Header = "Quit" };
             quit.Click += delegate { if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop) desktop.Shutdown(); };
             menu.Items.Add(talk);
@@ -197,6 +218,23 @@ namespace Solin.Companion
             menu.Items.Add(quit);
             menu.Opening += delegate { miniItem.Header = sprite.Mini ? "Full size" : "Mini form"; sleep.Header = sprite.Asleep ? "Wake up" : "Sleep"; };
             return menu;
+        }
+
+        private async void OpenSettings()
+        {
+            using (System.Text.Json.JsonDocument doc = await backend.Settings())
+                if (doc != null) settings.Load(doc.RootElement);
+            settings.Open(new PixelPoint(sprite.Position.X - Px(420), Math.Max(sprite.Screens.Primary?.WorkingArea.Y ?? 0, sprite.Position.Y - Px(260))));
+        }
+
+        // Companion-side settings from the backend's document: size, sounds, wandering, sleep and break timings.
+        private void ApplyCompanion(System.Text.Json.JsonElement c)
+        {
+            if (c.TryGetProperty("sounds", out System.Text.Json.JsonElement so)) sfx.Level = so.GetDouble();
+            if (c.TryGetProperty("wander", out System.Text.Json.JsonElement wa)) sprite.Wanderlust = wa.GetDouble();
+            if (c.TryGetProperty("sleep_after_min", out System.Text.Json.JsonElement sl)) SleepAfter = sl.GetDouble() * 60;
+            if (c.TryGetProperty("break_after_min", out System.Text.Json.JsonElement br)) BreakAfter = br.GetDouble() * 60;
+            if (c.TryGetProperty("size", out System.Text.Json.JsonElement sz)) sprite.Resize(sz.GetString() == "mini" ? SpriteWindow.MiniSize : SpriteWindow.FullSize);
         }
 
         private async void OpenChat()
@@ -244,7 +282,7 @@ namespace Solin.Companion
                 _ = backend.Event("greeted");
                 if (longAway) bubble.Say(WakeLines[pick.Next(WakeLines.Length)], "warm");
             }
-            if (activeSeconds >= BreakAfter && !bubble.IsVisible && agentState != "working" && !sprite.Asleep)
+            if (BreakAfter > 0 && activeSeconds >= BreakAfter && !bubble.IsVisible && agentState != "working" && !sprite.Asleep)
             {
                 activeSeconds = 0;
                 bubble.Say(BreakLines[pick.Next(BreakLines.Length)], "calm");
