@@ -22,5 +22,6 @@
     <EmbeddedResource Include="assets/sprites/*.png" LogicalName="Solin.Sprite.%(Filename)%(Extension)" />
     <EmbeddedResource Include="assets/portraits/*.png" LogicalName="Solin.Portrait.%(Filename)%(Extension)" />
     <AvaloniaResource Include="assets/fonts/*.ttf" Link="Assets/%(Filename)%(Extension)" />
+    <None Include="assets/fonts/*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
