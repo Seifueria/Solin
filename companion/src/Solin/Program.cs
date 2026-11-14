@@ -140,7 +140,8 @@ namespace Solin.Companion
                 typer.Open(new PixelPoint(sprite.Position.X + Px(sprite.Width / 2) - Px(160), sprite.Position.Y + Px(sprite.Height) - Px(30)));
             };
             bubble.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
-            bubble.Speaking += delegate(bool on) { Mouth(on); if (on) sfx.Play("tick"); };
+            bubble.Speaking += delegate(bool on) { Mouth(on); sprite.Busy = on; if (on) sfx.Play("tick"); };
+            sprite.Landed += delegate { if (agentState == "done") sprite.Dance(4); };
             voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => Mouth(on)); };
             bubble.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             pill.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.04)));
@@ -296,6 +297,7 @@ namespace Solin.Companion
                 thinking = false;
                 mood.Set(replyMood, mood.Trust);
                 bubble.Say(visible, replyMood);
+                if (replyMood == "warm" || replyMood == "teasing") sprite.Grin();
                 if (audio != null) _ = voice.Play(audio);
             }
             catch (Exception)
