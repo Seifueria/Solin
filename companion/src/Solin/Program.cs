@@ -88,6 +88,7 @@ namespace Solin.Companion
             ("Hey. I'm Solin.", "This is me on your desk. Drag me anywhere. Drop me on a window and I'll sit on it; let go over nothing and I'll float."),
             ("Talk to me.", "Double-click me for a quick line, or right-click for my menu: chat window, settings, mini form, sleep, quit."),
             ("I watch Claude Code too.", "While it works I'll show what it's doing. When it needs you I'll come find your cursor and point at its window."),
+            ("My icon's up there.", "By the clock. Click it for my menu, or to hide me and bring me back."),
         };
         private readonly DispatcherTimer vitalsTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         // Apps Claude Code tends to live in, frontmost first.
@@ -266,6 +267,7 @@ namespace Solin.Companion
                     case "mini": SetMini(!sprite.Mini); break;
                     case "replay-screen": Entrance("screen"); break;
                     case "replay-wake": Entrance("wake"); break;
+                    case "tour": StartTour(); break;
                     case "lie": if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); break;
                     case "quit": if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desk) desk.Shutdown(); break;
                     case "test-voice":
@@ -349,6 +351,8 @@ namespace Solin.Companion
                 vitalsTimer.Start();
                 Entrance();
                 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS"))) Console.WriteLine("[windows] " + sprite.DescribeLedges());
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_ICON") == "1")
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[icon] " + (sprite.MenuBarItem()?.ToString() ?? "not found") + sprite.DumpAll()), TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSSESS") == "2")
                     DispatcherTimer.RunOnce(() => { possess.Possess(() => new PixelRect(300, 300, 700, 420), 650, 5); Console.WriteLine("[possess] drawing on a test rectangle"); }, TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSSESS") == "1")
@@ -529,11 +533,15 @@ namespace Solin.Companion
             if (tourStep >= Tour.Length)
             {
                 tourStep = -1;
+                pointer.Stop();
                 _ = backend.SaveSettings(new { companion = new { toured = true } });
                 return;
             }
             (string title, string line) = Tour[tourStep];
             card.Show("hello", "SYNC", Card.Violet, title, line, null, tourStep == Tour.Length - 1 ? "GOT IT" : "NEXT");
+            // The last card points at her menu-bar icon, if it can be found.
+            if (tourStep == Tour.Length - 1 && sprite.MenuBarItem().HasValue) pointer.Point(() => sprite.HandScreen, () => sprite.MenuBarItem(), true, "MY ICON");
+            else pointer.Stop();
         }
 
         // She sinks into a window and wears it for a few seconds; if she is not on one, she teleports onto one first.

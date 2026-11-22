@@ -37,7 +37,8 @@ namespace Solin.Companion.Upstream
 
         private readonly IntPtr number, layer, frame, owner, alpha, onscreen, ownerName;
         // Another copy of her, or her backend's windows, are never a seat.
-        private static readonly string[] Ours = { "Solin.Companion", "Solin" };
+        // Run from the terminal, her windows are listed under "dotnet".
+        private static readonly string[] Ours = { "Solin.Companion", "Solin", "dotnet" };
         private readonly long self = Environment.ProcessId;
         // Screen pixels per CoreGraphics point.
         internal double Scale = 1;
@@ -88,6 +89,28 @@ namespace Solin.Companion.Upstream
             }
             finally { CFRelease(array); }
             return sb.ToString();
+        }
+
+        // Her own menu-bar icon: a small window of this process sitting in the menu bar. Solin's addition.
+        internal PixelRect? OwnMenuBarItem()
+        {
+            IntPtr array = CGWindowListCopyWindowInfo(OnScreenOnly, 0);
+            if (array == IntPtr.Zero) return null;
+            try
+            {
+                long count = CFArrayGetCount(array);
+                for (long i = 0; i < count; i++)
+                {
+                    IntPtr info = CFArrayGetValueAtIndex(array, i);
+                    if (Whole(info, owner) != self || Whole(info, layer) != 25) continue;
+                    IntPtr box = CFDictionaryGetValue(info, frame);
+                    if (box == IntPtr.Zero || !CGRectMakeWithDictionaryRepresentation(box, out Area area)) continue;
+                    if (area.Height > 40 || area.Width > 60 || area.Y > 2) continue;
+                    return new PixelRect((int)Math.Round(area.X * Scale), (int)Math.Round(area.Y * Scale), (int)Math.Round(area.Width * Scale), (int)Math.Round(area.Height * Scale));
+                }
+            }
+            finally { CFRelease(array); }
+            return null;
         }
 
         // Where one window is now, or null when it has gone or is hidden.

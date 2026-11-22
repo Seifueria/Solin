@@ -324,6 +324,9 @@ namespace Solin.Companion.Upstream
             return ids;
         }
 
+        internal PixelRect? MenuBarItem() { if (desk == null) return null; desk.Scale = Screens.Primary?.Scaling ?? 1; return desk.OwnMenuBarItem(); }
+        internal string DumpAll() { return desk == null ? "" : desk.Dump(); }
+
         // The frontmost window of any of these apps, in screen pixels, or null. For pointing at where Claude is.
         internal PixelRect? WindowOf(params string[] owners)
         {

@@ -99,7 +99,7 @@ namespace Solin.Companion
             // SOLIN
             StackPanel solinSection = Section("SOLIN >", null);
             WrapPanel actions = new WrapPanel { Orientation = Orientation.Horizontal };
-            foreach ((string label, string act) in new[] { ("Bring here", "bring"), ("Mini / Full", "mini"), ("Lie down / Sit up", "lie") })
+            foreach ((string label, string act) in new[] { ("Bring here", "bring"), ("Mini / Full", "mini"), ("Lie down / Sit up", "lie"), ("Show tour", "tour") })
             {
                 Button b = Outline(label); b.Margin = new Thickness(0, 0, 8, 6);
                 string which = act;
