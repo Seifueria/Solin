@@ -26,6 +26,38 @@ namespace Solin.Companion
             return "level " + GetNumber(ns, sel_registerName("level")) + " behaviour " + GetNumber(ns, sel_registerName("collectionBehavior")) + " visible " + GetNumber(ns, sel_registerName("isVisible")) + " onActiveSpace " + GetNumber(ns, sel_registerName("isOnActiveSpace"));
         }
 
+        private const string SkyLight = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight";
+        [DllImport(SkyLight)] private static extern int SLSMainConnectionID();
+        [DllImport(SkyLight)] private static extern ulong SLSGetActiveSpace(int connection);
+        [DllImport(ObjC)] private static extern IntPtr objc_getClass(string name);
+        [DllImport(ObjC, EntryPoint = "objc_msgSend")] private static extern IntPtr Send(IntPtr target, IntPtr selector);
+        private static int connection = -1;
+
+        // The number of the desktop on screen now, or 0 if it cannot be read. Changes the instant you swipe.
+        internal static ulong ActiveSpace()
+        {
+            if (!OperatingSystem.IsMacOS()) return 0;
+            try
+            {
+                if (connection < 0) connection = SLSMainConnectionID();
+                return SLSGetActiveSpace(connection);
+            }
+            catch (Exception) { return 0; }
+        }
+
+        // Runs her as a background agent app: no Dock icon, and the only kind of app macOS lets draw over another app's
+        // full-screen desktop.
+        internal static void BeAgent()
+        {
+            if (!OperatingSystem.IsMacOS()) return;
+            try
+            {
+                IntPtr app = Send(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
+                if (app != IntPtr.Zero) SetNumber(app, sel_registerName("setActivationPolicy:"), 1);
+            }
+            catch (Exception) { }
+        }
+
         private static IntPtr Native(Window window)
         {
             try { return window.TryGetPlatformHandle() is IMacOSTopLevelPlatformHandle mac ? mac.NSWindow : IntPtr.Zero; }

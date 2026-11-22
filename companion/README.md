@@ -190,6 +190,27 @@ API. File contents and tool output never leave the machine.
 three seconds after start and reports it, or lists every window with the
 reason it was refused. `SOLIN_DEBUG_WINDOWS=2` dumps the raw window list.
 
+## Solin.app
+
+```
+companion/mac/build-app.sh --install
+```
+
+builds a self-contained, ad-hoc signed `Solin.app` (a background agent: no
+Dock icon, and allowed over other apps' full-screen desktops), copies it to
+`~/Applications`, and starts it. The app remembers where this repo, Python
+and Homebrew are, so it runs her backend without a terminal. It opens at
+login by default; untick "Open at login" in her settings to stop that (it
+writes or removes `~/Library/LaunchAgents/com.seifueria.solin.plist`).
+
+## Looking at your screen
+
+"look at my screen", "what am I doing?", "what do you see?" or the menu's
+"Look at my screen" takes one screenshot of the main display, shrinks it,
+sends it to her brain with your line, and deletes it after she answers.
+Nothing is captured otherwise. The first time, macOS asks for Screen
+Recording permission for Solin; turn it on and reopen her.
+
 ## Build and run on macOS
 
 Requires the .NET 10 SDK.

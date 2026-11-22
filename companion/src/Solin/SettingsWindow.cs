@@ -44,6 +44,7 @@ namespace Solin.Companion
         private readonly NumericUpDown sleepAfter = new NumericUpDown { Minimum = 0, Maximum = 240, Increment = 1, Width = 110, FormatString = "0", FontFamily = TalkLook.Mono, FontSize = 12 };
         private readonly NumericUpDown breakAfter = new NumericUpDown { Minimum = 0, Maximum = 600, Increment = 10, Width = 110, FormatString = "0", FontFamily = TalkLook.Mono, FontSize = 12 };
         private readonly CheckBox mini = new CheckBox { Content = Mono("Start in mini form", 11, TalkLook.Ink) };
+        private readonly CheckBox login = new CheckBox { Content = Mono("Open at login", 11, TalkLook.Ink) };
         private readonly TextBlock status = new TextBlock { FontFamily = TalkLook.Mono, FontSize = 10, Foreground = TalkLook.Dim, VerticalAlignment = VerticalAlignment.Center };
         private readonly List<(string name, RadioButton radio)> brains = new List<(string, RadioButton)>();
         private Point? dragFrom;
@@ -110,6 +111,8 @@ namespace Solin.Companion
             solinSection.Children.Add(Row("Sleep after (min)", sleepAfter));
             solinSection.Children.Add(Row("Break nudge (min, 0 off)", breakAfter));
             solinSection.Children.Add(mini);
+            solinSection.Children.Add(login);
+            if (LoginItem.AppBundle == null) { login.IsEnabled = false; ToolTip.SetTip(login, "Available when she runs from Solin.app"); }
             form.Children.Add(solinSection);
 
             Grid foot = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"), Margin = new Thickness(0, 10, 0, 0) };
@@ -235,6 +238,7 @@ namespace Solin.Companion
                 sleepAfter.Value = c.TryGetProperty("sleep_after_min", out JsonElement sl) ? (decimal)sl.GetDouble() : 8;
                 breakAfter.Value = c.TryGetProperty("break_after_min", out JsonElement bk) ? (decimal)bk.GetDouble() : 120;
                 mini.IsChecked = c.TryGetProperty("size", out JsonElement sz) && sz.GetString() == "mini";
+                login.IsChecked = LoginItem.Enabled;
             }
             status.Text = "";
         }
@@ -252,6 +256,7 @@ namespace Solin.Companion
                     sounds = Math.Round(sounds.Value, 2), wander = Math.Round(wander.Value, 2),
                     sleep_after_min = (double)(sleepAfter.Value ?? 8), break_after_min = (double)(breakAfter.Value ?? 120),
                     size = mini.IsChecked == true ? "mini" : "full",
+                    login = login.IsChecked == true,
                 },
             };
         }

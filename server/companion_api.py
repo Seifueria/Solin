@@ -4,7 +4,8 @@ Solin-owned. Wraps the existing core_ai modules without changing them.
 
     GET  /health          -> {"ok": true, "brain": "...", "version": "..."}
     GET  /state           -> {"session_id", "mood", "trust", "brain", "speaking"}
-    POST /chat            {"session_id", "text", "speak": true}   speak defaults to config voice.speak
+    POST /chat            {"session_id", "text", "speak": true, "image": path}   speak defaults to config voice.speak;
+                          image is a screenshot the companion just took, for "look at my screen"
                           -> {"visible", "internal", "mood", "trust", "audio", "error"}
                              audio is an MP3 path on this machine for the companion to play, or null
     POST /event           {"session_id", "kind"}   companion-side happenings, e.g. "poked"
@@ -198,13 +199,16 @@ def chat():
     sid, current = session(data.get("session_id"))
     error = None
     context = bond.prompt_lines()
+    image = data.get("image")
+    if image and not (isinstance(image, str) and os.path.isfile(image) and image.lower().endswith((".jpg", ".jpeg", ".png"))):
+        image = None
     reminder = reminders.parse(text)
     if reminder:
         due, what = reminder
         reminders.add(due, what)
         context += f"\nThey just asked you to remind them to \"{what}\" {reminders.when(due)}. You've set it. Confirm in one short line, in your voice."
     try:
-        visible, internal, mood = brain.reply(text, context)
+        visible, internal, mood = brain.reply(text, context, image=image)
         bond.note("chat")
     except Exception as failure:  # noqa: BLE001  a dead key or an empty account must not take her down
         error = f"{type(failure).__name__}: {failure}"
