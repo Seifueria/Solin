@@ -700,6 +700,30 @@ namespace Solin.Companion
             return new PixelPoint(x, y);
         }
 
+        // Whether her body is off the window, on the same screen as it.
+        private bool Clear(PixelRect home)
+        {
+            PixelPoint c = sprite.ScreenCentre;
+            int r = Px(sprite.BodySize * 0.18);
+            PixelRect her = new PixelRect(c.X - r, c.Y - r * 2, r * 2, r * 4);
+            Screen mine = sprite.Screens.ScreenFromPoint(c), theirs = sprite.Screens.ScreenFromPoint(home.Center);
+            return mine != null && mine == theirs && !her.Intersects(home);
+        }
+
+        // Feet in the bottom corner of the screen on the window's roomier side, if she fits there off the window.
+        private PixelPoint? Far(PixelRect home)
+        {
+            Screen screen = sprite.Screens.ScreenFromPoint(home.Center) ?? sprite.Screens.Primary;
+            if (screen == null) return null;
+            PixelRect area = screen.WorkingArea;
+            int need = Px(sprite.BodySize * 0.55), half = Px(sprite.Width / 2);
+            int roomRight = area.Right - home.Right, roomLeft = home.X - area.X, roomBelow = area.Bottom - home.Bottom;
+            if (roomBelow >= Px(sprite.BodySize))
+                return new PixelPoint(pick.NextDouble() < 0.5 ? area.X + half : area.Right - half, area.Bottom);
+            if (Math.Max(roomRight, roomLeft) < need) return null;
+            return new PixelPoint(roomRight >= roomLeft ? area.Right - half : area.X + half, area.Bottom);
+        }
+
         private PixelRect? MenuBarCorner()
         {
             Screen screen = sprite.Screens.Primary;
@@ -894,8 +918,14 @@ namespace Solin.Companion
                         if (home.HasValue) DispatcherTimer.RunOnce(() => { if (agentState == "needs_you") pointer.Point(() => sprite.HandScreen, () => sprite.WindowOf(ClaudeHomes)); }, TimeSpan.FromSeconds(1.3));
                         // Beside Claude's window, level with your cursor, so she can point at it; next to the cursor if there's no room.
                         PixelPoint? at = Mouse.Position(sprite.Screens.Primary?.Scaling ?? 1);
-                        PixelPoint? beside = home.HasValue ? Beside(home.Value, at) : null;
-                        if (beside.HasValue) { sfx.Play("zap"); sprite.Teleport(sprite.StandingAt(beside.Value)); }
+                        // Already clear of the window: usually she stays and points from where she is, for a long arrow.
+                        // Otherwise often a far corner on the roomier side rather than right against the window.
+                        bool clear = home.HasValue && Clear(home.Value);
+                        bool stay = clear && pick.NextDouble() < 0.75;
+                        PixelPoint? beside = stay || !home.HasValue ? null : pick.NextDouble() < 0.6 ? Far(home.Value) ?? Beside(home.Value, at) : Beside(home.Value, at);
+                        if (PointerWindow.Debug) Console.WriteLine("[place] at " + sprite.ScreenCentre + " clear=" + clear + " stay=" + stay + " to " + beside);
+                        if (stay) { }
+                        else if (beside.HasValue) { sfx.Play("zap"); sprite.Teleport(sprite.StandingAt(beside.Value)); }
                         else if (at.HasValue) { sfx.Play("zap"); sprite.Teleport(sprite.StandingAt(new PixelPoint(at.Value.X + Px(90), at.Value.Y + Px(40)))); }
                         sprite.React("jolt");
                         bristle.Start();
