@@ -81,6 +81,7 @@ to a dot, and she reassembles out of it. All drawn in code, no frames.
 | poke her five times quickly (three when mini) | she is pestered: a jolt, a buzz, and her mood sours |
 | mini form | pocket size; she turns to watch the cursor. `SOLIN_MINI=1` starts her small |
 | seated a few quiet minutes | she lies down along the edge; the menu can ask her to lie down or sit up |
+| left alone a few minutes | now and then she teleports onto some window's top edge and sits, or lies straight down; "Find a seat" asks her to |
 | reply arrives | types into a bubble above her head, mouth moving, then fades |
 | you leave for 8 minutes | she falls asleep on her feet; back after 20 she wakes with a line |
 | left alone | a glitch tic every half minute or so; now and then she wanders along the floor |

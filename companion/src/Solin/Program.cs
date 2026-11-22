@@ -306,6 +306,11 @@ namespace Solin.Companion
                 vitalsTimer.Start();
                 Entrance();
                 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS"))) Console.WriteLine("[windows] " + sprite.DescribeLedges());
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_ROAM") == "1")
+                {
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[roam] started " + sprite.TeleportToLedge(lie: true)), TimeSpan.FromSeconds(3));
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[roam] " + sprite.DebugSeat() + " lying " + sprite.Lying), TimeSpan.FromSeconds(6));
+                }
                 if (SpriteWindow.DebugPerch)
                 {
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[perch] " + sprite.DebugSit()), TimeSpan.FromSeconds(3));
@@ -342,6 +347,9 @@ namespace Solin.Companion
             MenuItem lookItem = new MenuItem { Header = "Look at my screen" };
             lookItem.Click += delegate { chat.AddYou("what am I doing?"); _ = Ask("what am I doing right now?", look: true); };
             menu.Items.Add(lookItem);
+            MenuItem seatItem = new MenuItem { Header = "Find a seat" };
+            seatItem.Click += delegate { if (!sprite.TeleportToLedge(lie: true)) pill.Say("nowhere to sit", 3, "SOLIN"); };
+            menu.Items.Add(seatItem);
             MenuItem lie = new MenuItem { Header = "Lie down" };
             lie.Click += delegate { if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); };
             menu.Items.Add(lie);

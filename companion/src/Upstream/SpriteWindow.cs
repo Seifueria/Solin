@@ -231,6 +231,34 @@ namespace Solin.Companion.Upstream
         // Fired once she has landed after a teleport, and when one begins.
         internal Action Landed;
         internal Action TeleportStarted;
+        // Roaming: now and then, left alone, she teleports onto some window's top edge and sits, sometimes lying straight down.
+        // Solin's addition over the base, in the manner of the Mochii build's idle jumps.
+        private Spot pendingSeat;
+        private bool lieOnArrival;
+        private double nextRoam = 150;
+
+        internal bool TeleportToLedge(bool lie)
+        {
+            if (desk == null) return false;
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            System.Collections.Generic.List<(Spot spot, int hipX)> choices = new System.Collections.Generic.List<(Spot, int)>();
+            foreach (Spot spot in desk.Windows())
+            {
+                if (seat != null && spot.Window == seat.Window) continue;
+                if (spot.Bounds.Width < Px(body.Size * 0.9)) continue;
+                int hipX = spot.Bounds.X + (int)(spot.Bounds.Width * (0.2 + random.NextDouble() * 0.6));
+                // Reachable and not hidden behind another window at that spot.
+                if (LedgeUnder(new PixelPoint(hipX, spot.Bounds.Y), 2)?.Window == spot.Window) choices.Add((spot, hipX));
+            }
+            if (choices.Count == 0) return false;
+            (Spot chosen, int x) = choices[random.Next(choices.Count)];
+            pendingSeat = chosen;
+            lieOnArrival = lie;
+            Teleport(new PixelPoint(x - Hip.X, chosen.Bounds.Y - Hip.Y));
+            pendingSeat = chosen;
+            return true;
+        }
+
         // Her body's centre in screen pixels, for effects drawn in other windows.
         internal PixelPoint ScreenCentre { get { return new PixelPoint(Position.X + Px(body.Centre.X), Position.Y + Px(body.Centre.Y - body.Lift)); } }
         // Body plus anything Solin draws over her, like the entrance.
@@ -360,6 +388,8 @@ namespace Solin.Companion.Upstream
         // Glitches out, moves to target (her window's top-left, in screen pixels) and glitches back in.
         internal void Teleport(PixelPoint target)
         {
+            // Any teleport cancels a seat chosen by an earlier one; TeleportToLedge sets its own again right after.
+            pendingSeat = null;
             seat = null;
             floating = false;
             body.Lift = 0;
@@ -577,6 +607,11 @@ namespace Solin.Companion.Upstream
             if (walking) Walk(dt);
             bool quiet = !Busy && !pressed && !flying && !dragging && !walking && danceUntil < 0 && clip != glitch && clip != perchGlitch && clip != grin && !Asleep && teleportTo == null && arriveAt < 0;
             if (quiet && !lying && now >= nextTic) { nextTic = now + 30 + random.NextDouble() * 30; Play(seat != null ? perchGlitch : glitch); }
+            if (quiet && Wanderlust > 0 && now >= nextRoam && !Mini)
+            {
+                nextRoam = now + (180 + random.NextDouble() * 240) / Math.Max(0.1, Wanderlust);
+                if (random.NextDouble() < 0.6) TeleportToLedge(lie: random.NextDouble() < 0.5);
+            }
             if (quiet && !lying && flourish == null && now >= nextFlourish)
             {
                 nextFlourish = now + 35 + random.NextDouble() * 55;
@@ -606,6 +641,16 @@ namespace Solin.Companion.Upstream
                     teleportTo = null;
                     Play(idle);
                     Squash(0.6);
+                    if (pendingSeat != null)
+                    {
+                        Spot target = desk?.Find(pendingSeat.Window);
+                        pendingSeat = null;
+                        if (target != null)
+                        {
+                            Sit(target);
+                            if (lieOnArrival) LieDown();
+                        }
+                    }
                     Landed?.Invoke();
                 }
                 index = 0;
