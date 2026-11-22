@@ -113,6 +113,14 @@ When Claude runs a command, edits a file or goes on the web, sparks fly off
 her hand. An error or a hard landing flashes a red impact frame and tears a
 few slices of her sideways for a moment; her idle glitch tic tears too.
 
+## Stargazing
+
+Now and then when nothing is going on, more often at night, she looks up:
+faint constellations fade in above her, a bright star appears on the far
+side of the screen, a dotted trail grows from her hand toward it, and she
+zaps it with lightning, a burst and a crosshair. "Stargaze" in her menu asks
+for it.
+
 ## Spaces
 
 Her windows live on every macOS Space and above full-screen apps, so a swipe

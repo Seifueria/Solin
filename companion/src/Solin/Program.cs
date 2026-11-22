@@ -57,6 +57,8 @@ namespace Solin.Companion
         private FlourishWindow flourish;
         private PointerWindow pointer;
         private FrameFxWindow frameFx;
+        private SkyWindow sky;
+        private readonly DispatcherTimer skyTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
         // Which windows were on screen last look; a wholesale change means you swiped to another Space and she came along.
         private System.Collections.Generic.HashSet<long> sceneWas = new System.Collections.Generic.HashSet<long>();
         private readonly DispatcherTimer scene = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
@@ -125,6 +127,7 @@ namespace Solin.Companion
                 flourish = new FlourishWindow();
                 pointer = new PointerWindow();
                 frameFx = new FrameFxWindow();
+                sky = new SkyWindow();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
@@ -284,6 +287,15 @@ namespace Solin.Companion
             };
             vitalsTimer.Tick += async delegate { await vitals.Poll(); };
             Tray();
+            sky.Zapped += delegate { sfx.Play("zap"); sprite.Jitter(0.3); sprite.React("jolt"); };
+            // Now and then, when nothing is going on, she looks up at the sky; more often at night.
+            skyTimer.Tick += delegate
+            {
+                int hour = DateTime.Now.Hour;
+                double chance = hour >= 20 || hour < 6 ? 0.12 : 0.03;
+                if (pick.NextDouble() < chance) Stargaze();
+            };
+            skyTimer.Start();
             scene.Tick += delegate { SceneCheck(); };
             if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_LEVEL") == "1")
             {
@@ -306,6 +318,8 @@ namespace Solin.Companion
                 vitalsTimer.Start();
                 Entrance();
                 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS"))) Console.WriteLine("[windows] " + sprite.DescribeLedges());
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SKY") == "1")
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[sky] started " + Stargaze(asked: true)), TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_ROAM") == "1")
                 {
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[roam] started " + sprite.TeleportToLedge(lie: true)), TimeSpan.FromSeconds(3));
@@ -347,6 +361,9 @@ namespace Solin.Companion
             MenuItem lookItem = new MenuItem { Header = "Look at my screen" };
             lookItem.Click += delegate { chat.AddYou("what am I doing?"); _ = Ask("what am I doing right now?", look: true); };
             menu.Items.Add(lookItem);
+            MenuItem starItem = new MenuItem { Header = "Stargaze" };
+            starItem.Click += delegate { Stargaze(asked: true); };
+            menu.Items.Add(starItem);
             MenuItem seatItem = new MenuItem { Header = "Find a seat" };
             seatItem.Click += delegate { if (!sprite.TeleportToLedge(lie: true)) pill.Say("nowhere to sit", 3, "SOLIN"); };
             menu.Items.Add(seatItem);
@@ -448,7 +465,7 @@ namespace Solin.Companion
         {
             lastFront = DateTime.Now;
             if (hidden) return;
-            foreach (Window w in new Window[] { sprite, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
+            foreach (Window w in new Window[] { sprite, sky, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
             {
                 if (w == null) continue;
                 Spaces.Reassert(w);
@@ -479,6 +496,18 @@ namespace Solin.Companion
             }
             (string title, string line) = Tour[tourStep];
             card.Show("hello", "SYNC", Card.Violet, title, line, null, tourStep == Tour.Length - 1 ? "GOT IT" : "NEXT");
+        }
+
+        // She looks up: constellations, a star, a trail from her hand, then a zap. Only when nothing else is going on.
+        private bool Stargaze(bool asked = false)
+        {
+            bool busy = hidden || thinking || sprite.Asleep || sky.Running || bubble.IsVisible || card.IsVisible || (agentState == "working" || agentState == "needs_you");
+            if (busy && !asked) return false;
+            if (hidden || sky.Running) return false;
+            sfx.Play("soft");
+            sprite.Flourish("cock");
+            sky.Gaze(() => sprite.HandScreen);
+            return true;
         }
 
         // The typing box under her feet, centred.
