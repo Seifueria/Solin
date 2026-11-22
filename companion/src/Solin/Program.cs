@@ -58,6 +58,8 @@ namespace Solin.Companion
         private PointerWindow pointer;
         private FrameFxWindow frameFx;
         private SkyWindow sky;
+        private PossessWindow possess;
+        private bool possessPending;
         private readonly DispatcherTimer skyTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
         // Which windows were on screen last look; a wholesale change means you swiped to another Space and she came along.
         private System.Collections.Generic.HashSet<long> sceneWas = new System.Collections.Generic.HashSet<long>();
@@ -128,6 +130,7 @@ namespace Solin.Companion
                 pointer = new PointerWindow();
                 frameFx = new FrameFxWindow();
                 sky = new SkyWindow();
+                possess = new PossessWindow();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
@@ -200,7 +203,7 @@ namespace Solin.Companion
             sprite.FlightLanded += delegate { sprite.React(throws >= 3 ? "jolt" : "dip"); if (throws >= 3) { fx.Impact(); sprite.Jitter(0.5); throws = 0; } };
             sprite.TalkAsked += delegate { OpenTyper(); };
             bubble.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
-            bubble.Speaking += delegate(bool on) { Mouth(on); sprite.Busy = on; if (on) sfx.Play("tick"); };
+            bubble.Speaking += delegate(bool on) { Mouth(on); sprite.Busy = on; possess.Talking = on; if (on) sfx.Play("tick"); };
             flourish.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             // Leaving: she breaks into shards. Arriving: a column of light where she reforms. Done: speed lines and her face in a cut-in.
             sprite.TeleportStarted += delegate { flourish.Shatter(sprite.ScreenCentre, sprite.BodySize); };
@@ -288,12 +291,16 @@ namespace Solin.Companion
             vitalsTimer.Tick += async delegate { await vitals.Poll(); };
             Tray();
             sky.Zapped += delegate { sfx.Play("zap"); sprite.Jitter(0.3); sprite.React("jolt"); };
+            possess.Finished += delegate { sfx.Play("zap"); sprite.Arrive(0.5); sprite.Jitter(0.35); flourish.Beam(sprite.ScreenCentre, sprite.BodySize); };
+            sprite.Landed += delegate { if (possessPending) { possessPending = false; if (sprite.Seated) DispatcherTimer.RunOnce(BeginPossession, TimeSpan.FromMilliseconds(400)); } };
             // Now and then, when nothing is going on, she looks up at the sky; more often at night.
             skyTimer.Tick += delegate
             {
                 int hour = DateTime.Now.Hour;
                 double chance = hour >= 20 || hour < 6 ? 0.12 : 0.03;
                 if (pick.NextDouble() < chance) Stargaze();
+                // Seated and left alone, once in a while she climbs into the window she is sitting on.
+                else if (sprite.Seated && pick.NextDouble() < 0.04) Possess();
             };
             skyTimer.Start();
             scene.Tick += delegate { SceneCheck(); };
@@ -318,6 +325,10 @@ namespace Solin.Companion
                 vitalsTimer.Start();
                 Entrance();
                 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS"))) Console.WriteLine("[windows] " + sprite.DescribeLedges());
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSSESS") == "2")
+                    DispatcherTimer.RunOnce(() => { possess.Possess(() => new PixelRect(300, 300, 700, 420), 650, 5); Console.WriteLine("[possess] drawing on a test rectangle"); }, TimeSpan.FromSeconds(3));
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSSESS") == "1")
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[possess] started " + Possess(asked: true) + " seated " + sprite.Seated), TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SKY") == "1")
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[sky] started " + Stargaze(asked: true)), TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_ROAM") == "1")
@@ -361,6 +372,9 @@ namespace Solin.Companion
             MenuItem lookItem = new MenuItem { Header = "Look at my screen" };
             lookItem.Click += delegate { chat.AddYou("what am I doing?"); _ = Ask("what am I doing right now?", look: true); };
             menu.Items.Add(lookItem);
+            MenuItem possessItem = new MenuItem { Header = "Possess a window" };
+            possessItem.Click += delegate { Possess(asked: true); };
+            menu.Items.Add(possessItem);
             MenuItem starItem = new MenuItem { Header = "Stargaze" };
             starItem.Click += delegate { Stargaze(asked: true); };
             menu.Items.Add(starItem);
@@ -465,7 +479,7 @@ namespace Solin.Companion
         {
             lastFront = DateTime.Now;
             if (hidden) return;
-            foreach (Window w in new Window[] { sprite, sky, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
+            foreach (Window w in new Window[] { sprite, possess, sky, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
             {
                 if (w == null) continue;
                 Spaces.Reassert(w);
@@ -496,6 +510,27 @@ namespace Solin.Companion
             }
             (string title, string line) = Tour[tourStep];
             card.Show("hello", "SYNC", Card.Violet, title, line, null, tourStep == Tour.Length - 1 ? "GOT IT" : "NEXT");
+        }
+
+        // She sinks into a window and wears it for a few seconds; if she is not on one, she teleports onto one first.
+        private bool Possess(bool asked = false)
+        {
+            bool busy = hidden || thinking || sprite.Asleep || possess.Running || sky.Running || (agentState == "working" || agentState == "needs_you");
+            if (busy && !asked) return false;
+            if (hidden || possess.Running) return false;
+            if (sprite.Seated) { BeginPossession(); return true; }
+            possessPending = true;
+            if (!sprite.TeleportToLedge(lie: false)) { possessPending = false; pill.Say("no window to climb into", 3, "SOLIN"); return false; }
+            return true;
+        }
+
+        private void BeginPossession()
+        {
+            if (!sprite.Seated || possess.Running) return;
+            sfx.Play("buzz");
+            int entry = sprite.ScreenCentre.X;
+            sprite.HideForEntrance();
+            possess.Possess(() => sprite.SeatBounds, entry, 7);
         }
 
         // She looks up: constellations, a star, a trail from her hand, then a zap. Only when nothing else is going on.

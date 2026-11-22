@@ -150,6 +150,8 @@ namespace Solin.Companion.Upstream
         private int seatOffset;
         private double seatChecked;
         internal bool Seated { get { return seat != null; } }
+        // The window she is sitting on, where it is now, or null.
+        internal PixelRect? SeatBounds { get { Spot s = seat; return s == null ? (PixelRect?)null : s.Bounds; } }
         internal static readonly bool DebugPerch = Environment.GetEnvironmentVariable("SOLIN_DEBUG_PERCH") == "1";
 
         // Sits her on the first window she can see, for checking the seat without a drag. Returns what happened.

@@ -113,6 +113,15 @@ When Claude runs a command, edits a file or goes on the web, sparks fly off
 her hand. An error or a hard landing flashes a red impact frame and tears a
 few slices of her sideways for a moment; her idle glitch tic tears too.
 
+## Possessing a window
+
+Seated on a window and left alone, once in a while she sinks into it: its
+frame goes jagged, glitch bars run across it, and it grows eyes that follow
+your cursor and a zigzag mouth that chatters while she talks. A few seconds
+later she pops back out on top. "Possess a window" in her menu asks for it;
+if she is not on a window she teleports onto one first. The window itself is
+never touched; this is all drawn over it.
+
 ## Stargazing
 
 Now and then when nothing is going on, more often at night, she looks up:
