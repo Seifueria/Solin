@@ -173,7 +173,7 @@ namespace Solin.Companion
                         }
                     }
                     catch (OperationCanceledException) { }
-                    catch (Exception) { }
+                    catch (Exception e) { if (PointerWindow.Debug) Console.WriteLine("[events] dropped: " + e.GetType().Name + " " + e.Message); }
                     Connected?.Invoke(false);
                     try { await Task.Delay(TimeSpan.FromSeconds(2), token); } catch (OperationCanceledException) { }
                 }
@@ -183,6 +183,7 @@ namespace Solin.Companion
         private void Dispatch(string kind, string json)
         {
             if (kind == null || json.Length == 0) return;
+            if (PointerWindow.Debug) Console.WriteLine("[events] " + kind);
             try
             {
                 using (JsonDocument doc = JsonDocument.Parse(json))
@@ -203,7 +204,7 @@ namespace Solin.Companion
                     }
                 }
             }
-            catch (Exception) { }
+            catch (Exception e) { if (PointerWindow.Debug) Console.WriteLine("[events] " + kind + " failed: " + e.Message); }
         }
 
         public void Dispose()

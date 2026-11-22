@@ -686,6 +686,20 @@ namespace Solin.Companion
         }
 
         // She looks up: constellations, a star, a trail from her hand, then a zap. Only when nothing else is going on.
+        // Feet just outside a window's left or right edge (whichever has more room), level with the cursor; null if neither has room.
+        private PixelPoint? Beside(PixelRect home, PixelPoint? cursor)
+        {
+            Screen screen = sprite.Screens.ScreenFromPoint(home.Center) ?? sprite.Screens.Primary;
+            if (screen == null) return null;
+            PixelRect area = screen.WorkingArea;
+            int need = Px(sprite.BodySize * 0.55);
+            int roomRight = area.Right - home.Right, roomLeft = home.X - area.X;
+            if (Math.Max(roomRight, roomLeft) < need) return null;
+            int x = roomRight >= roomLeft ? home.Right + Math.Min(roomRight / 2, Px(sprite.BodySize * 0.4)) : home.X - Math.Min(roomLeft / 2, Px(sprite.BodySize * 0.4));
+            int y = Math.Clamp((cursor?.Y ?? home.Center.Y) + Px(sprite.BodySize * 0.5), home.Y + Px(sprite.BodySize), Math.Max(home.Y + Px(sprite.BodySize), home.Bottom));
+            return new PixelPoint(x, y);
+        }
+
         private PixelRect? MenuBarCorner()
         {
             Screen screen = sprite.Screens.Primary;
@@ -842,6 +856,7 @@ namespace Solin.Companion
         private void Agent(string state, string detail, string statsLine = null)
         {
             bool fresh = state != agentState;
+            if (PointerWindow.Debug) Console.WriteLine("[agent] " + state + " fresh=" + fresh + " mask=" + maskMode + " home=" + sprite.WindowOf(ClaudeHomes) + " detail=" + detail);
             agentState = state;
             if (maskMode != null && state != "needs_you") { mask.Watching = false; if (state != "done") return; }
             agentSeen = DateTime.Now;
@@ -877,9 +892,11 @@ namespace Solin.Companion
                         if (eyes != null) DispatcherTimer.RunOnce(() => flourish.Burst(sprite.ScreenCentre, sprite.BodySize, eyes, rays: false), TimeSpan.FromSeconds(1.4));
                         PixelRect? home = sprite.WindowOf(ClaudeHomes);
                         if (home.HasValue) DispatcherTimer.RunOnce(() => { if (agentState == "needs_you") pointer.Point(() => sprite.HandScreen, () => sprite.WindowOf(ClaudeHomes)); }, TimeSpan.FromSeconds(1.3));
-                        // Next to the cursor, so the question is where you are looking.
+                        // Beside Claude's window, level with your cursor, so she can point at it; next to the cursor if there's no room.
                         PixelPoint? at = Mouse.Position(sprite.Screens.Primary?.Scaling ?? 1);
-                        if (at.HasValue) { sfx.Play("zap"); sprite.Teleport(sprite.StandingAt(new PixelPoint(at.Value.X + Px(90), at.Value.Y + Px(40)))); }
+                        PixelPoint? beside = home.HasValue ? Beside(home.Value, at) : null;
+                        if (beside.HasValue) { sfx.Play("zap"); sprite.Teleport(sprite.StandingAt(beside.Value)); }
+                        else if (at.HasValue) { sfx.Play("zap"); sprite.Teleport(sprite.StandingAt(new PixelPoint(at.Value.X + Px(90), at.Value.Y + Px(40)))); }
                         sprite.React("jolt");
                         bristle.Start();
                     }
@@ -891,13 +908,25 @@ namespace Solin.Companion
                     if (fresh)
                     {
                         sfx.Play("chime");
-                        // Centre of the screen for the victory lap; the dip on landing is her bow.
+                        // Where she takes the news: sometimes the middle of the screen for a victory lap, sometimes onto a
+                        // window or a random spot, sometimes she just says it where she is. The dip on landing is her bow.
                         Screen screen = sprite.Screens.Primary;
-                        if (screen != null)
+                        double roll = pick.NextDouble();
+                        if (screen != null && !hidden && !sprite.Asleep)
                         {
                             PixelRect area = screen.WorkingArea;
-                            sfx.Play("zap");
-                            sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
+                            if (roll < 0.35)
+                            {
+                                sfx.Play("zap");
+                                sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
+                            }
+                            else if (roll < 0.55 && sprite.TeleportToLedge(lie: false)) sfx.Play("zap");
+                            else if (roll < 0.75)
+                            {
+                                sfx.Play("zap");
+                                int x = area.X + (int)(area.Width * (0.15 + pick.NextDouble() * 0.7)), y = area.Y + (int)(area.Height * (0.45 + pick.NextDouble() * 0.5));
+                                sprite.Teleport(sprite.StandingAt(new PixelPoint(x, y)));
+                            }
                         }
                         card.Show(agentProject, "DONE", Card.Green, Pick(DoneLines), detail == "done" ? null : detail, statsLine, null, 14);
                     }
