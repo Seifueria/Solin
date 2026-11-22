@@ -356,7 +356,11 @@ namespace Solin.Companion
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSSESS") == "2")
                     DispatcherTimer.RunOnce(() => { possess.Possess(() => new PixelRect(300, 300, 700, 420), 650, 5); Console.WriteLine("[possess] drawing on a test rectangle"); }, TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSSESS") == "1")
+                {
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[possess] started " + Possess(asked: true) + " seated " + sprite.Seated), TimeSpan.FromSeconds(3));
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[possess] at 5.5s running " + possess.Running + " " + sprite.DebugSeat()), TimeSpan.FromSeconds(5.5));
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[possess] at 13s running " + possess.Running + " " + sprite.DebugSeat()), TimeSpan.FromSeconds(13));
+                }
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SKY") == "1")
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[sky] started " + Stargaze(asked: true)), TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_ROAM") == "1")
