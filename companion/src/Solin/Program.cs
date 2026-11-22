@@ -317,6 +317,8 @@ namespace Solin.Companion
             };
             vitalsTimer.Tick += async delegate { await vitals.Poll(); };
             Tray();
+            // She turns to the star so the trail and bolt leave the hand on its side.
+            sky.Aiming = x => sprite.AimX = x;
             sky.Zapped += delegate { sfx.Play("zap"); sprite.Jitter(0.3); sprite.React("jolt"); };
             mask.Clicked += delegate { FromMask(); };
             emote.Finished += delegate { if (emoteHid) { emoteHid = false; sprite.Arrive(0.35); } };
@@ -594,7 +596,8 @@ namespace Solin.Companion
             (string title, string line) = Tour[tourStep];
             card.Show("hello", "SYNC", Card.Violet, title, line, null, tourStep == Tour.Length - 1 ? "GOT IT" : "NEXT");
             // The last card points at her menu-bar icon, if it can be found.
-            if (tourStep == Tour.Length - 1 && sprite.MenuBarItem().HasValue) pointer.Point(() => sprite.HandScreen, () => sprite.MenuBarItem(), true, "MY ICON");
+            // With the menu bar hidden the icon can't be found, so she points at the top right where the bar comes down.
+            if (tourStep == Tour.Length - 1) pointer.Point(() => sprite.HandScreen, () => sprite.MenuBarItem() ?? MenuBarCorner(), true, sprite.MenuBarItem().HasValue ? "MY ICON" : "MENU BAR");
             else pointer.Stop();
         }
 
@@ -683,6 +686,13 @@ namespace Solin.Companion
         }
 
         // She looks up: constellations, a star, a trail from her hand, then a zap. Only when nothing else is going on.
+        private PixelRect? MenuBarCorner()
+        {
+            Screen screen = sprite.Screens.Primary;
+            if (screen == null) return null;
+            return new PixelRect(screen.Bounds.Right - Px(260), screen.Bounds.Y, Px(160), Px(24));
+        }
+
         private bool Stargaze(bool asked = false)
         {
             bool busy = hidden || thinking || sprite.Asleep || sky.Running || bubble.IsVisible || card.IsVisible || (agentState == "working" || agentState == "needs_you");
@@ -841,6 +851,12 @@ namespace Solin.Companion
                 case "working":
                     pill.Say(string.IsNullOrEmpty(detail) ? "claude is working" : detail);
                     if (fresh) { sprite.React("dip"); card.Dismiss(); pointer.Stop(); }
+                    // A new message to Claude: a quick point at the window it went to.
+                    if (fresh && detail == "reading what you asked" && sprite.WindowOf(ClaudeHomes).HasValue && !hidden)
+                    {
+                        pointer.Point(() => sprite.HandScreen, () => sprite.WindowOf(ClaudeHomes), false);
+                        DispatcherTimer.RunOnce(() => { if (agentState != "needs_you") pointer.Stop(); }, TimeSpan.FromSeconds(3));
+                    }
                     // Running a command or going on the web: sparks off her fingers.
                     if (detail != null && (detail.StartsWith("bash") || detail.StartsWith("webfetch") || detail.StartsWith("websearch") || detail.StartsWith("edit") || detail.StartsWith("write")))
                     {

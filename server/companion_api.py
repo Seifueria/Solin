@@ -426,6 +426,11 @@ def agent_state_of(event):
         if event.get("error"):
             return "error", str(event.get("error"))[:80]
         return "working", "thinking"
+    if name == "PermissionRequest":
+        # The permission dialog itself; the desktop app shows these without a Notification event.
+        tool = event.get("tool_name") or "a tool"
+        gist = (event.get("gist") or "").strip()
+        return "needs_you", ("claude wants to use " + tool + (": " + gist if gist else "")).lower()[:80]
     if name == "Notification":
         kind = event.get("notification_type") or ""
         text = (event.get("message") or "").strip()[:80]

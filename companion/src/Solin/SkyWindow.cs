@@ -18,6 +18,8 @@ namespace Solin.Companion
         private readonly DispatcherTimer frames = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
         internal event Action Zapped;
         internal bool Running { get { return frames.IsEnabled; } }
+        // The star's screen x while the show runs, null after: so she can face it.
+        internal Action<int?> Aiming;
 
         internal SkyWindow()
         {
@@ -28,7 +30,7 @@ namespace Solin.Companion
             Spaces.ClickThrough(this);
             Content = canvas;
             canvas.Zapped += delegate { Zapped?.Invoke(); };
-            frames.Tick += delegate { if (!canvas.Step()) { frames.Stop(); Hide(); } };
+            frames.Tick += delegate { if (!canvas.Step()) { frames.Stop(); Hide(); Aiming?.Invoke(null); } };
         }
 
         // hand: where her hand is, in screen pixels; the sky is the screen that point is on.
@@ -42,6 +44,7 @@ namespace Solin.Companion
             Position = area.Position;
             Width = area.Width / scale; Height = area.Height / scale;
             canvas.Begin(new Size(Width, Height), () => { PixelPoint p = hand(); return new Point((p.X - area.X) / scale, (p.Y - area.Y) / scale); });
+            Aiming?.Invoke(area.X + (int)(canvas.StarX * scale));
             if (!IsVisible) Show();
             Spaces.Front(this);
             frames.Start();
@@ -57,6 +60,7 @@ namespace Solin.Companion
         private readonly List<Point> stars = new List<Point>();
         private readonly List<(int a, int b)> lines = new List<(int, int)>();
         private Point starFrom, starTo;
+        internal double StarX { get { return starTo.X; } }
         private bool zapped;
         internal event Action Zapped;
 
@@ -69,11 +73,12 @@ namespace Solin.Companion
             stars.Clear(); lines.Clear();
             Point h = hand();
             // A loose constellation above her: a dozen dots, a few joined.
-            Point centre = new Point(Math.Clamp(h.X + (random.NextDouble() - 0.3) * area.Width * 0.25, 80, area.Width - 80), Math.Max(60, h.Y - area.Height * 0.32));
+            // The bright star goes on the far side of the screen from her; the constellation hangs over her, leaning away from it.
+            bool right = h.X < area.Width / 2;
+            Point centre = new Point(Math.Clamp(h.X + (right ? -1 : 1) * (0.02 + random.NextDouble() * 0.1) * area.Width, 80, area.Width - 80), Math.Max(60, h.Y - area.Height * 0.32));
             for (int i = 0; i < 16; i++) stars.Add(new Point(centre.X + (random.NextDouble() - 0.5) * area.Width * 0.22, centre.Y + (random.NextDouble() - 0.5) * area.Height * 0.16));
             for (int i = 0; i < 6; i++) { int a = random.Next(stars.Count), b = random.Next(stars.Count); if (a != b) lines.Add((a, b)); }
             // The bright one: far off on the other side of the screen, drifting a little.
-            bool right = h.X < area.Width / 2;
             starFrom = new Point(right ? area.Width * (0.68 + random.NextDouble() * 0.2) : area.Width * (0.12 + random.NextDouble() * 0.2), area.Height * (0.12 + random.NextDouble() * 0.2));
             starTo = new Point(starFrom.X + (right ? -1 : 1) * area.Width * 0.04, starFrom.Y + area.Height * 0.03);
             clock.Restart();
