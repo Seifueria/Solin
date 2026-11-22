@@ -60,6 +60,11 @@ namespace Solin.Companion
         private SkyWindow sky;
         private PossessWindow possess;
         private WakeWindow wake;
+        private GrabWindow grab;
+        private MaskWindow mask;
+        private EmoteWindow emote;
+        // "away": put away by you, waiting in the corner. "dream": asleep long enough to come apart where she stood.
+        private string maskMode;
         private readonly Music music = new Music();
         private MusicPlayer player;
         private readonly DispatcherTimer musicTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -140,6 +145,9 @@ namespace Solin.Companion
                 sky = new SkyWindow();
                 possess = new PossessWindow();
                 wake = new WakeWindow();
+                grab = new GrabWindow();
+                mask = new MaskWindow();
+                emote = new EmoteWindow();
                 player = new MusicPlayer();
                 desktop.MainWindow = sprite;
                 Wire();
@@ -204,6 +212,7 @@ namespace Solin.Companion
                 _ = backend.Event("poked");
             };
             sprite.CursorAt = () => Mouse.Position(sprite.Screens.Primary?.Scaling ?? 1);
+            sprite.MiniArt = ArtLibrary.Mini;
             sprite.ContextMenu = Menu();
             if (Environment.GetEnvironmentVariable("SOLIN_MINI") == "1") sprite.Resize(SpriteWindow.MiniSize);
             sprite.Dragged += delegate { _ = backend.Event("dragged"); };
@@ -221,10 +230,13 @@ namespace Solin.Companion
             {
                 sprite.Jitter(0.25);
                 flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
-                if (agentState == "done") flourish.Burst(sprite.ScreenCentre, sprite.BodySize);
+                if (agentState == "done") flourish.Burst(sprite.ScreenCentre, sprite.BodySize, ArtLibrary.CutIn(pick.NextDouble() < 0.5 ? "grin" : "laugh"));
             };
             voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => Mouth(on)); };
             bubble.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
+            // Reference faces for her mood, when the art is on this Mac; the live crop otherwise.
+            bubble.Still = () => ArtLibrary.Face(mood.Mood);
+            chat.Still = () => ArtLibrary.Face(mood.Mood);
             pill.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.04)));
             sprite.PositionChanged += delegate { bubble.Reposition(); pill.Reposition(); };
             bristle.Tick += delegate { if (agentState == "needs_you") sprite.React("jolt"); else bristle.Stop(); };
@@ -245,6 +257,7 @@ namespace Solin.Companion
             };
             card.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.02)));
             card.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
+            card.Still = () => ArtLibrary.Face(agentState == "done" ? "warm" : agentState == "needs_you" ? "curious" : agentState == "error" ? "annoyed" : mood.Mood);
             typer.Sent += delegate(string text) { chat.AddYou(text); _ = Ask(text); };
             chat.Sent += delegate(string text) { _ = Ask(text); };
             settings.Applied += async delegate(object body)
@@ -267,6 +280,7 @@ namespace Solin.Companion
                     case "mini": SetMini(!sprite.Mini); break;
                     case "replay-screen": Entrance("screen"); break;
                     case "replay-wake": Entrance("wake"); break;
+                    case "replay-grab": Entrance("grab"); break;
                     case "tour": StartTour(); break;
                     case "lie": if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); break;
                     case "quit": if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desk) desk.Shutdown(); break;
@@ -304,6 +318,20 @@ namespace Solin.Companion
             vitalsTimer.Tick += async delegate { await vitals.Poll(); };
             Tray();
             sky.Zapped += delegate { sfx.Play("zap"); sprite.Jitter(0.3); sprite.React("jolt"); };
+            mask.Clicked += delegate { FromMask(); };
+            emote.Finished += delegate { if (emoteHid) { emoteHid = false; sprite.Arrive(0.35); } };
+            pointer.Aiming = x => sprite.AimX = x;
+            mask.Hovered += delegate { if (maskMode == "dream") FromMask(); };
+            grab.Beat += delegate(string beat)
+            {
+                switch (beat)
+                {
+                    case "hands": sfx.Play("soft"); break;
+                    case "grab": sfx.Play("buzz"); break;
+                    case "hi": sfx.Play("chime"); break;
+                    case "smear": sfx.Play("zap"); break;
+                }
+            };
             possess.Finished += delegate { sfx.Play("zap"); sprite.Arrive(0.5); sprite.Jitter(0.35); flourish.Beam(sprite.ScreenCentre, sprite.BodySize); };
             sprite.Landed += delegate { if (possessPending) { possessPending = false; if (sprite.Seated) DispatcherTimer.RunOnce(BeginPossession, TimeSpan.FromMilliseconds(400)); } };
             // Now and then, when nothing is going on, she looks up at the sky; more often at night.
@@ -314,6 +342,8 @@ namespace Solin.Companion
                 if (pick.NextDouble() < chance) Stargaze();
                 // Seated and left alone, once in a while she climbs into the window she is sitting on.
                 else if (sprite.Seated && pick.NextDouble() < 0.04) Possess();
+                // On the floor, once in a while she pulls up her chair.
+                else if (!sprite.Seated && !sprite.Floating && pick.NextDouble() < 0.025) PlayEmote("chair");
             };
             skyTimer.Start();
             // Music: the player shows under her while something plays, and she sways along.
@@ -351,6 +381,14 @@ namespace Solin.Companion
                 vitalsTimer.Start();
                 Entrance();
                 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS"))) Console.WriteLine("[windows] " + sprite.DescribeLedges());
+                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_EMOTE")))
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[emote] " + Environment.GetEnvironmentVariable("SOLIN_DEBUG_EMOTE") + " started " + PlayEmote(Environment.GetEnvironmentVariable("SOLIN_DEBUG_EMOTE"), asked: true)), TimeSpan.FromSeconds(3));
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_MASK") == "1")
+                {
+                    DispatcherTimer.RunOnce(() => { ToMask("away"); Console.WriteLine("[mask] away, visible " + mask.IsVisible); }, TimeSpan.FromSeconds(3));
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[mask] at 4s visible " + mask.IsVisible + " sprite " + sprite.IsVisible), TimeSpan.FromSeconds(4));
+                    DispatcherTimer.RunOnce(() => { FromMask(); Console.WriteLine("[mask] out, sprite " + sprite.IsVisible + " mask " + mask.IsVisible); }, TimeSpan.FromSeconds(6));
+                }
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_ICON") == "1")
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[icon] " + (sprite.MenuBarItem()?.ToString() ?? "not found") + sprite.DumpAll()), TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSSESS") == "2")
@@ -404,6 +442,16 @@ namespace Solin.Companion
             MenuItem lookItem = new MenuItem { Header = "Look at my screen" };
             lookItem.Click += delegate { chat.AddYou("what am I doing?"); _ = Ask("what am I doing right now?", look: true); };
             menu.Items.Add(lookItem);
+            MenuItem emotes = new MenuItem { Header = "Emote" };
+            MenuItem chairItem = new MenuItem { Header = "Chair" };
+            chairItem.Click += delegate { if (!PlayEmote("chair", asked: true)) pill.Say("not here, i'm not on the floor", 3, "SOLIN"); };
+            MenuItem heartItem = new MenuItem { Header = "Heart" };
+            heartItem.Click += delegate { PlayEmote("heart", asked: true); };
+            emotes.Items.Add(chairItem); emotes.Items.Add(heartItem);
+            menu.Items.Add(emotes);
+            MenuItem awayItem = new MenuItem { Header = "Put away" };
+            awayItem.Click += delegate { ToMask("away"); };
+            menu.Items.Add(awayItem);
             MenuItem possessItem = new MenuItem { Header = "Possess a window" };
             possessItem.Click += delegate { Possess(asked: true); };
             menu.Items.Add(possessItem);
@@ -445,6 +493,8 @@ namespace Solin.Companion
                 show.Click += delegate { hidden = !hidden; if (hidden) { sprite.Hide(); bubble.Hide(); pill.Clear(); card.Dismiss(); } else sprite.Show(); show.Header = hidden ? "Show Solin" : "Hide Solin"; };
                 NativeMenuItem bring = new NativeMenuItem("Bring here");
                 bring.Click += delegate { settingsActionBring(); };
+                NativeMenuItem awayTray = new NativeMenuItem("Put away / Bring out");
+                awayTray.Click += delegate { if (maskMode != null) FromMask(); else ToMask("away"); };
                 NativeMenuItem lookTray = new NativeMenuItem("Look at my screen");
                 lookTray.Click += delegate { chat.AddYou("what am I doing?"); _ = Ask("what am I doing right now?", look: true); };
                 NativeMenuItem chatItem = new NativeMenuItem("Chat window");
@@ -453,7 +503,7 @@ namespace Solin.Companion
                 settingsItem.Click += delegate { OpenSettings(); };
                 NativeMenuItem quitItem = new NativeMenuItem("Quit Solin");
                 quitItem.Click += delegate { if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desk) desk.Shutdown(); };
-                menu.Items.Add(show); menu.Items.Add(bring); menu.Items.Add(new NativeMenuItemSeparator()); menu.Items.Add(lookTray); menu.Items.Add(chatItem); menu.Items.Add(settingsItem); menu.Items.Add(new NativeMenuItemSeparator()); menu.Items.Add(quitItem);
+                menu.Items.Add(show); menu.Items.Add(bring); menu.Items.Add(awayTray); menu.Items.Add(new NativeMenuItemSeparator()); menu.Items.Add(lookTray); menu.Items.Add(chatItem); menu.Items.Add(settingsItem); menu.Items.Add(new NativeMenuItemSeparator()); menu.Items.Add(quitItem);
                 tray.Menu = menu;
                 tray.IsVisible = true;
             }
@@ -511,7 +561,7 @@ namespace Solin.Companion
         {
             lastFront = DateTime.Now;
             if (hidden) return;
-            foreach (Window w in new Window[] { sprite, player, wake, possess, sky, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
+            foreach (Window w in new Window[] { sprite, emote, mask, player, wake, grab, possess, sky, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
             {
                 if (w == null) continue;
                 Spaces.Reassert(w);
@@ -577,6 +627,59 @@ namespace Solin.Companion
             if (t == null) { player.Stop(); return; }
             if (playing && t.Key != playerDismissedFor && !hidden) player.Show(t);
             else if (player.IsVisible) player.Update(t);
+        }
+
+        private bool emoteHid;
+
+        // One of the drawn emotes: "chair" (she sits in it, and a close-up of her fills the far side of the screen) or
+        // "heart" (over the whole screen). Played from the references folder when it is there.
+        private bool PlayEmote(string name, bool asked = false)
+        {
+            bool busy = hidden || maskMode != null || emote.Running || possess.Running || sky.Running || (agentState == "working" || agentState == "needs_you");
+            if ((busy && !asked) || hidden || emote.Running || !EmoteWindow.Available(name)) return false;
+            if (name == "chair" && (sprite.Seated || sprite.Floating)) return false;
+            PixelPoint foot = new PixelPoint(sprite.ScreenCentre.X, sprite.ScreenCentre.Y + Px(sprite.BodySize * 0.49));
+            if (!emote.Play(name, foot, sprite.BodySize)) return false;
+            if (name == "chair") { sprite.HideForEntrance(); emoteHid = true; }
+            else { sfx.Play("chime"); sprite.React("dip"); }
+            return true;
+        }
+
+        // Into her mask: she bursts into shards and only the mask is left. Put away, it rests in the bottom-left corner;
+        // dreaming, it floats where she stood.
+        private void ToMask(string mode)
+        {
+            if (maskMode != null || hidden) return;
+            maskMode = mode;
+            PixelPoint at = sprite.ScreenCentre;
+            sfx.Play(mode == "away" ? "zap" : "soft");
+            flourish.Shatter(at, sprite.BodySize);
+            sprite.Hide(); bubble.Hide(); pill.Clear(); card.Dismiss(); player.Stop();
+            if (mode == "away")
+            {
+                Screen screen = sprite.Screens.Primary;
+                PixelRect area = screen?.WorkingArea ?? new PixelRect(0, 0, 1200, 800);
+                at = new PixelPoint(area.X + Px(90), area.Bottom - Px(90));
+            }
+            mask.Watching = agentState == "needs_you";
+            DispatcherTimer.RunOnce(() => mask.ShowAt(at), TimeSpan.FromMilliseconds(250));
+        }
+
+        // Out of the mask: she reforms where it was, in a beam.
+        private void FromMask()
+        {
+            if (maskMode == null) return;
+            PixelPoint at = mask.Centre;
+            maskMode = null;
+            mask.Away();
+            sprite.Position = sprite.StandingAt(new PixelPoint(at.X, at.Y + Px(sprite.Height * 0.45)));
+            sprite.HideForEntrance();
+            sprite.Show();
+            if (sprite.Asleep) sprite.Wake();
+            sfx.Play("zap");
+            flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
+            DispatcherTimer.RunOnce(() => { sprite.Arrive(0.55); sprite.Jitter(0.3); }, TimeSpan.FromMilliseconds(160));
+            _ = backend.Event("greeted");
         }
 
         // She looks up: constellations, a star, a trail from her hand, then a zap. Only when nothing else is going on.
@@ -656,7 +759,19 @@ namespace Solin.Companion
         private void Entrance(string kind = null)
         {
             kind = kind ?? EntranceSetting();
-            if (kind == "random") kind = pick.NextDouble() < 0.5 ? "wake" : "screen";
+            if (kind == "random")
+            {
+                string[] kinds = GrabWindow.Available ? new[] { "screen", "wake", "grab" } : new[] { "screen", "wake" };
+                kind = kinds[pick.Next(kinds.Length)];
+            }
+            if (kind == "grab" && GrabWindow.Available)
+            {
+                sprite.HideForEntrance();
+                grab.Finished -= WakeDone;
+                grab.Finished += WakeDone;
+                grab.Play(sprite.ScreenCentre);
+                return;
+            }
             if (kind == "wake")
             {
                 sprite.HideForEntrance();
@@ -693,6 +808,8 @@ namespace Solin.Companion
                 sleptAt = DateTime.Now;
                 _ = backend.Event("ignored");
             }
+            else if (maskMode == "dream" && idle.Value < 2) FromMask();
+            else if (sprite.Asleep && maskMode == null && sleptAt.HasValue && (DateTime.Now - sleptAt.Value).TotalMinutes > 10) ToMask("dream");
             else if (sprite.Asleep && idle.Value < 2)
             {
                 sprite.Wake();
@@ -716,6 +833,7 @@ namespace Solin.Companion
         {
             bool fresh = state != agentState;
             agentState = state;
+            if (maskMode != null && state != "needs_you") { mask.Watching = false; if (state != "done") return; }
             agentSeen = DateTime.Now;
             quietStage = 0;
             switch (state)
@@ -733,10 +851,14 @@ namespace Solin.Companion
                     }
                     break;
                 case "needs_you":
+                    if (maskMode != null) { mask.Watching = true; sfx.Play("blip"); break; }
                     pill.Say(string.IsNullOrEmpty(detail) ? "claude needs you" : detail);
                     if (fresh)
                     {
                         card.Show(agentProject, "WAITING", Card.Red, Pick(WaitLines), detail);
+                        // A flash of her eyes beside her once she has landed by your cursor.
+                        Avalonia.Media.Imaging.Bitmap eyes = ArtLibrary.CutIn("eyes");
+                        if (eyes != null) DispatcherTimer.RunOnce(() => flourish.Burst(sprite.ScreenCentre, sprite.BodySize, eyes, rays: false), TimeSpan.FromSeconds(1.4));
                         PixelRect? home = sprite.WindowOf(ClaudeHomes);
                         if (home.HasValue) DispatcherTimer.RunOnce(() => { if (agentState == "needs_you") pointer.Point(() => sprite.HandScreen, () => sprite.WindowOf(ClaudeHomes)); }, TimeSpan.FromSeconds(1.3));
                         // Next to the cursor, so the question is where you are looking.
@@ -793,8 +915,11 @@ namespace Solin.Companion
             @"\b(look at|see|check|read)\b[^.?!]*\bscreen\b|\bwhat am i (doing|working on|looking at)\b|\bwhat do you see\b|\bwhat'?s on my screen\b",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
+        private static readonly System.Text.RegularExpressions.Regex Affection = new System.Text.RegularExpressions.Regex(@"\blove (you|u)\b|<3|❤|\bily\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
         private async Task Ask(string text, bool look = false)
         {
+            if (Affection.IsMatch(text)) PlayEmote("heart", asked: true);
             thinking = true;
             sprite.React("dip");
             string shot = null;

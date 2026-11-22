@@ -30,6 +30,9 @@ namespace Solin.Companion.Upstream
         internal double ScaleX = 1, ScaleY = 1;
         // A sideways nudge of the whole body, for a knock-back. Solin's addition.
         internal double Shove;
+        // A whole picture drawn in place of the clip, in her square (the mini face plate). Solin's addition.
+        internal Avalonia.Media.Imaging.Bitmap Override;
+        private Rect OverrideRect { get { return new Rect(Centre.X - Size / 2, Centre.Y - Size / 2, Size, Size); } }
         private static readonly Random tear = new Random(7);
 
         internal Rect Place(Clip shown)
@@ -59,6 +62,12 @@ namespace Solin.Companion.Upstream
         // Whether a point in this control lands on drawn art, so clicks beside her fall through to nothing.
         internal bool Opaque(Point at, int radius = 6)
         {
+            if (Override != null)
+            {
+                // The plate fills the middle band of its square.
+                Rect r = OverrideRect;
+                return at.X >= r.X + r.Width * 0.04 && at.X <= r.Right - r.Width * 0.04 && at.Y >= r.Y + r.Height * 0.24 && at.Y <= r.Y + r.Height * 0.74;
+            }
             Clip shown = Shown;
             if (shown == null || !Pose.TryInvert(out Matrix inverse)) return false;
             Point local = inverse.Transform(at);
@@ -70,6 +79,13 @@ namespace Solin.Companion.Upstream
 
         public override void Render(DrawingContext context)
         {
+            if (Override != null)
+            {
+                using (context.PushTransform(Pose))
+                using (context.PushOpacity(Math.Clamp(1 - Dissolve * 0.95, 0, 1)))
+                    context.DrawImage(Override, new Rect(0, 0, Override.PixelSize.Width, Override.PixelSize.Height), OverrideRect);
+                return;
+            }
             Clip shown = Shown;
             if (shown == null) return;
             using (context.PushTransform(Pose))

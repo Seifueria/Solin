@@ -62,6 +62,26 @@ starts it itself from the repo root with `python3 -m server.companion_api`
 Mood changes arriving on `/events` shape her idle: breath and tilt pace, and
 how often she blinks (see `src/Solin/MoodState.cs`).
 
+## Reference art at runtime
+
+Until Solin has her own art, some features borrow the reference builds' art,
+read straight from `~/Capri References` (or `SOLIN_ART`) while she runs and
+never copied into this repo, since it is not covered by those projects'
+licences: the Mochii build's mood faces (portraits in the bubble, cards and
+chat), cut-ins (the done burst, a flash of her eyes when Claude needs you)
+and full-screen grab frames (the "grab" entrance); the Edgerunners build's
+mini face plates (her mini form); and the base's chair and heart emotes. With
+the folder missing, each falls back to what she drew before.
+
+| feature | how |
+|---|---|
+| grab entrance | her hands come in from the screen edges, she grabs it, says hi, waves, smiles and shrinks down to where she lands; pick it in settings |
+| mini form | the face plate: blinks, looks toward the cursor, talks, scowls when pestered, glitches |
+| put away | menu or menu bar: she bursts into shards and her drawn mask rests in the bottom-left corner, eyes shut; they open while Claude waits; click it to bring her back |
+| dreaming | asleep ten minutes, she comes apart and the mask floats where she stood, winking; moving the mouse wakes her |
+| emotes | Emote > Chair (she pulls up her chair, with a close-up of her on the far side of the screen) or Heart (over the whole screen); "love you" or <3 plays the heart; the chair now and then when idle |
+| pointing | she turns and leans toward what she points at |
+
 ## Her entrance
 
 Two entrances, chosen in settings (random by default) and replayable there.

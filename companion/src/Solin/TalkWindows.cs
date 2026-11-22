@@ -79,6 +79,8 @@ namespace Solin.Companion
         internal Func<(Clip clip, int cell, Clip mouth, int mouthCell)> Frame;
         // A circle by default; square for the mission cards.
         internal bool Round = true;
+        // A still face to show instead of the live crop, when there is one (reference art for her mood).
+        internal Func<Avalonia.Media.Imaging.Bitmap> Still;
         private readonly DispatcherTimer refresh = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
 
         internal Portrait(double size)
@@ -93,6 +95,17 @@ namespace Solin.Companion
         {
             Rect box = new Rect(0, 0, Bounds.Width, Bounds.Height);
             context.FillRectangle(new SolidColorBrush(Color.FromArgb(255, 30, 24, 36)), box, Round ? (float)(Bounds.Width / 2) : 0f);
+            Avalonia.Media.Imaging.Bitmap still = Still?.Invoke();
+            if (still != null)
+            {
+                // Cover the box from the middle of the picture.
+                double side = Math.Min(still.PixelSize.Width, still.PixelSize.Height);
+                Rect from = new Rect((still.PixelSize.Width - side) / 2, (still.PixelSize.Height - side) / 2, side, side);
+                using (context.PushGeometryClip(Round ? (Geometry)new EllipseGeometry(box) : new RectangleGeometry(box)))
+                    context.DrawImage(still, from, box);
+                if (Round) context.DrawEllipse(null, new Pen(TalkLook.AccentBrush, 2), box.Center, box.Width / 2 - 1, box.Height / 2 - 1);
+                return;
+            }
             if (Frame == null) return;
             (Clip clip, int cell, Clip mouth, int mouthCell) = Frame();
             if (clip == null) return;
@@ -177,6 +190,7 @@ namespace Solin.Companion
         internal event Action<bool> Speaking;
 
         internal Func<(Clip clip, int cell, Clip mouth, int mouthCell)> Frame { set { face.Frame = value; } }
+        internal Func<Avalonia.Media.Imaging.Bitmap> Still { set { face.Still = value; } }
 
         internal Bubble()
         {

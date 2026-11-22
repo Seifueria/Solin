@@ -27,6 +27,7 @@ namespace Solin.Companion
 
         internal event Action<string> Sent;
         internal Func<(Clip clip, int cell, Clip mouth, int mouthCell)> Frame { set { face.Frame = value; } }
+        internal Func<Avalonia.Media.Imaging.Bitmap> Still { set { face.Still = value; } }
 
         internal ChatWindow()
         {
