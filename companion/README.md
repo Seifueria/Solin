@@ -116,7 +116,10 @@ few slices of her sideways for a moment; her idle glitch tic tears too.
 
 Her windows live on every macOS Space and above full-screen apps, so a swipe
 between desktops brings her along; she arrives with a zap, a glitch and the
-light column. A window she was sitting on that stays behind drops her.
+light column. A window she was sitting on that stays behind drops her. After a swipe,
+and every few seconds, her windows are put back to the front of their level
+without taking focus. `SOLIN_DEBUG_LEVEL=1` prints her window level each
+second if she is ever seen behind something.
 
 ## Menu bar, first run, quiet Claude
 

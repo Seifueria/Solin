@@ -24,6 +24,7 @@ namespace Solin.Companion
             ShowActivated = false;
             IsHitTestVisible = false;
             Content = canvas;
+            Spaces.ClickThrough(this);
             frames.Tick += delegate { if (clock.Elapsed.TotalSeconds > until) { frames.Stop(); Hide(); } else canvas.InvalidateVisual(); };
         }
 

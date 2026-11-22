@@ -61,6 +61,7 @@ namespace Solin.Companion
         private System.Collections.Generic.HashSet<long> sceneWas = new System.Collections.Generic.HashSet<long>();
         private readonly DispatcherTimer scene = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
         private DateTime lastSpaceHop = DateTime.MinValue;
+        private DateTime lastFront = DateTime.MinValue;
         private readonly Vitals vitals = new Vitals();
         private TrayIcon tray;
         private bool hidden;
@@ -281,6 +282,12 @@ namespace Solin.Companion
             vitalsTimer.Tick += async delegate { await vitals.Poll(); };
             Tray();
             scene.Tick += delegate { SceneCheck(); };
+            if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_LEVEL") == "1")
+            {
+                DispatcherTimer probe = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+                probe.Tick += delegate { Console.WriteLine("[level] " + DateTime.Now.ToString("HH:mm:ss") + " " + Spaces.Describe(sprite)); };
+                probe.Start();
+            }
             scene.Start();
             quiet.Tick += delegate { QuietTicker(); };
             quiet.Start();
@@ -392,6 +399,7 @@ namespace Solin.Companion
                 if (overlap < 0.34 && (DateTime.Now - lastSpaceHop).TotalSeconds > 2)
                 {
                     lastSpaceHop = DateTime.Now;
+                    KeepInFront();
                     if (!hidden && !sprite.Asleep)
                     {
                         sfx.Play("zap");
@@ -401,6 +409,21 @@ namespace Solin.Companion
                 }
             }
             sceneWas = now;
+            // Every few seconds as well: the flags back on if anything reset them, and her windows to the front of their level.
+            if ((DateTime.Now - lastFront).TotalSeconds > 4) KeepInFront();
+        }
+
+        // Her body first, then the windows that belong over her, so a card or a box is never hidden behind her.
+        private void KeepInFront()
+        {
+            lastFront = DateTime.Now;
+            if (hidden) return;
+            foreach (Window w in new Window[] { sprite, chat, settings, card, bubble, pill, typer })
+            {
+                if (w == null) continue;
+                Spaces.Reassert(w);
+                Spaces.Front(w);
+            }
         }
 
         // A task that has gone quiet: after fifteen seconds the pill says she's waiting on Claude's thinking, after a minute that it's slow.
