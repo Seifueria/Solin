@@ -64,7 +64,10 @@ how often she blinks (see `src/Solin/MoodState.cs`).
 
 ## Her entrance
 
-On start she is not simply there: four brackets lock onto her spot, a line
+Two entrances, chosen in settings (random by default) and replayable there.
+"wake": the screen dims and a giant jagged eye in her colours opens, its
+iris spinning and pupil tightening, blinks, snaps shut to a line and
+collapses to a dot where she stands. "screen": four brackets lock onto her spot, a line
 flicks on and opens into a screen with rolling scanlines, the screen snaps
 to a dot, and she reassembles out of it. All drawn in code, no frames.
 

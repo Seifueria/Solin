@@ -59,6 +59,7 @@ namespace Solin.Companion
         private FrameFxWindow frameFx;
         private SkyWindow sky;
         private PossessWindow possess;
+        private WakeWindow wake;
         private bool possessPending;
         private readonly DispatcherTimer skyTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
         // Which windows were on screen last look; a wholesale change means you swiped to another Space and she came along.
@@ -131,6 +132,7 @@ namespace Solin.Companion
                 frameFx = new FrameFxWindow();
                 sky = new SkyWindow();
                 possess = new PossessWindow();
+                wake = new WakeWindow();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
@@ -255,6 +257,8 @@ namespace Solin.Companion
                 {
                     case "bring": settingsActionBring(); break;
                     case "mini": SetMini(!sprite.Mini); break;
+                    case "replay-screen": Entrance("screen"); break;
+                    case "replay-wake": Entrance("wake"); break;
                     case "lie": if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); break;
                     case "quit": if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desk) desk.Shutdown(); break;
                     case "test-voice":
@@ -479,7 +483,7 @@ namespace Solin.Companion
         {
             lastFront = DateTime.Now;
             if (hidden) return;
-            foreach (Window w in new Window[] { sprite, possess, sky, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
+            foreach (Window w in new Window[] { sprite, wake, possess, sky, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
             {
                 if (w == null) continue;
                 Spaces.Reassert(w);
@@ -586,13 +590,53 @@ namespace Solin.Companion
         }
 
         // The drawn entrance, then she reassembles out of the dot.
-        private void Entrance()
+        // Which entrance to play: "screen", "wake" or "random", from companion.entrance in data/config.json, read directly
+        // because her entrance plays before the backend is up.
+        private static string EntranceSetting()
         {
+            string env = Environment.GetEnvironmentVariable("SOLIN_ENTRANCE");
+            if (!string.IsNullOrEmpty(env)) return env;
+            try
+            {
+                string repo = BackendLauncher.FindRepo();
+                string file = repo == null ? null : System.IO.Path.Combine(repo, "data", "config.json");
+                if (file == null || !System.IO.File.Exists(file)) return "random";
+                string text = System.IO.File.ReadAllText(file).Trim();
+                if (text.Length == 0) return "random";
+                using (System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(text))
+                    if (doc.RootElement.TryGetProperty("companion", out System.Text.Json.JsonElement c) && c.TryGetProperty("entrance", out System.Text.Json.JsonElement e))
+                        return e.GetString() ?? "random";
+            }
+            catch (Exception) { }
+            return "random";
+        }
+
+        private void Entrance(string kind = null)
+        {
+            kind = kind ?? EntranceSetting();
+            if (kind == "random") kind = pick.NextDouble() < 0.5 ? "wake" : "screen";
+            if (kind == "wake")
+            {
+                sprite.HideForEntrance();
+                wake.Finished -= WakeDone;
+                wake.Finished += WakeDone;
+                sfx.Play("soft");
+                wake.Play(sprite.ScreenCentre);
+                return;
+            }
             IntroFx intro = new IntroFx(sprite.BodyCentre, sprite.BodySize);
             intro.ScreenLit += delegate { sfx.Play("zap"); };
             intro.Finished += delegate { sprite.Layers.Children.Remove(intro); sprite.Arrive(0.8); sfx.Play("soft"); };
             sprite.Layers.Children.Add(intro);
             intro.Start();
+        }
+
+        private void WakeDone()
+        {
+            sfx.Play("zap");
+            sprite.Arrive(0.7);
+            sprite.Jitter(0.3);
+            flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
         }
 
         // Once a second: sleep when you have been away a while, wake when you return, nudge a break after two hours of no pauses.
