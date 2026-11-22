@@ -68,6 +68,8 @@ namespace Solin.Companion.Upstream
         private double nextWander = 20;
         // True while something is being said, so tics and wandering wait. Solin sets it.
         internal bool Busy;
+        // True while music plays: she sways and bobs to it. Solin's addition.
+        internal bool Grooving;
 
         internal void Dance(double seconds) { if (!Asleep && !flying && !pressed) { danceUntil = Now + seconds; Play(dance); } }
 
@@ -607,7 +609,7 @@ namespace Solin.Companion.Upstream
             bool onFloor = seat == null && !flying && !pressed && !Asleep && !floating;
             if (walking && (pressed || flying || seat != null || Asleep)) { walking = false; }
             if (walking) Walk(dt);
-            bool quiet = !Busy && !pressed && !flying && !dragging && !walking && danceUntil < 0 && clip != glitch && clip != perchGlitch && clip != grin && !Asleep && teleportTo == null && arriveAt < 0;
+            bool quiet = !Busy && !Grooving && !pressed && !flying && !dragging && !walking && danceUntil < 0 && clip != glitch && clip != perchGlitch && clip != grin && !Asleep && teleportTo == null && arriveAt < 0;
             if (quiet && !lying && now >= nextTic) { nextTic = now + 30 + random.NextDouble() * 30; Play(seat != null ? perchGlitch : glitch); }
             if (quiet && Wanderlust > 0 && now >= nextRoam && !Mini)
             {
@@ -725,6 +727,12 @@ namespace Solin.Companion.Upstream
             // Breath and tilt scale with her size so they read the same at every size.
             double scale = body.Size / 240;
             body.Breathe = settled ? Math.Sin(now * BreathRate) * BreathDepth * scale : 0;
+            if (Grooving && settled && clip != sleep)
+            {
+                // A sway on the beat-ish and a small bob on every other half-beat.
+                body.Tilt += Math.Sin(now * 2.4) * 3.2;
+                body.Breathe -= Math.Abs(Math.Sin(now * 4.8)) * 3 * scale;
+            }
             // Hovering, she rides a slow swell on top of her breathing.
             if (floating && settled) body.Breathe += Math.Sin(now * 0.9) * 7 * scale;
             body.Tilt = walking ? Math.Sin(now * 9) * 1.2 : settled ? Math.Sin(now * TiltRate) * TiltDepth : flying ? Math.Clamp(flyVx / 60, -25, 25) : 0;

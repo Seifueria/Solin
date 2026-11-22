@@ -60,6 +60,12 @@ namespace Solin.Companion
         private SkyWindow sky;
         private PossessWindow possess;
         private WakeWindow wake;
+        private readonly Music music = new Music();
+        private MusicPlayer player;
+        private readonly DispatcherTimer musicTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        private readonly DispatcherTimer noteTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.3) };
+        private string playerDismissedFor;
+        private DateTime pausedAt = DateTime.MaxValue;
         private bool possessPending;
         private readonly DispatcherTimer skyTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
         // Which windows were on screen last look; a wholesale change means you swiped to another Space and she came along.
@@ -133,6 +139,7 @@ namespace Solin.Companion
                 sky = new SkyWindow();
                 possess = new PossessWindow();
                 wake = new WakeWindow();
+                player = new MusicPlayer();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
@@ -307,6 +314,19 @@ namespace Solin.Companion
                 else if (sprite.Seated && pick.NextDouble() < 0.04) Possess();
             };
             skyTimer.Start();
+            // Music: the player shows under her while something plays, and she sways along.
+            player.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height) - Px(16)));
+            player.Command += delegate(string cmd) { _ = music.Control(cmd); };
+            player.Closed2 += delegate { playerDismissedFor = music.Now?.Key; };
+            music.Changed += delegate(Music.Track t) { Dispatcher.UIThread.Post(() => OnMusic(t)); };
+            musicTimer.Tick += async delegate
+            {
+                await music.Poll();
+                if (player.IsVisible) player.Update(music.Now);
+                if (music.Now != null && !music.Now.Playing && (DateTime.Now - pausedAt).TotalSeconds > 25) player.Stop();
+            };
+            noteTimer.Tick += delegate { if (sprite.Grooving && !hidden) fx.Notes(); };
+            musicTimer.Start();
             scene.Tick += delegate { SceneCheck(); };
             if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_LEVEL") == "1")
             {
@@ -483,7 +503,7 @@ namespace Solin.Companion
         {
             lastFront = DateTime.Now;
             if (hidden) return;
-            foreach (Window w in new Window[] { sprite, wake, possess, sky, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
+            foreach (Window w in new Window[] { sprite, player, wake, possess, sky, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
             {
                 if (w == null) continue;
                 Spaces.Reassert(w);
@@ -535,6 +555,16 @@ namespace Solin.Companion
             int entry = sprite.ScreenCentre.X;
             sprite.HideForEntrance();
             possess.Possess(() => sprite.SeatBounds, entry, 7);
+        }
+
+        private void OnMusic(Music.Track t)
+        {
+            bool playing = t != null && t.Playing;
+            sprite.Grooving = playing;
+            if (playing) { noteTimer.Start(); pausedAt = DateTime.MaxValue; } else { noteTimer.Stop(); pausedAt = DateTime.Now; }
+            if (t == null) { player.Stop(); return; }
+            if (playing && t.Key != playerDismissedFor && !hidden) player.Show(t);
+            else if (player.IsVisible) player.Update(t);
         }
 
         // She looks up: constellations, a star, a trail from her hand, then a zap. Only when nothing else is going on.

@@ -79,6 +79,8 @@ namespace Solin.Companion
                     sparks[i] = s;
                 }
                 sparks.RemoveAll(s => now - s.Born > s.Life);
+                notes.RemoveAll(n => now - n.Born > 1.8);
+                if (notes.Count > 0) InvalidateVisual();
                 if (sparks.Count > 0 || impactUntil > now) InvalidateVisual();
                 else if (impactUntil > 0) { impactUntil = -1; InvalidateVisual(); }
             }
@@ -94,6 +96,16 @@ namespace Solin.Companion
                 double angle = -Math.PI / 2 + (random.NextDouble() - 0.5) * 1.8, speed = 120 + random.NextDouble() * 260;
                 sparks.Add(new Spark { At = hand, Vel = new Point(Math.Cos(angle) * speed, Math.Sin(angle) * speed), Born = now, Life = 0.25 + random.NextDouble() * 0.35, Tint = SparkTints[random.Next(SparkTints.Length)] });
             }
+            InvalidateVisual();
+        }
+
+        // A music note that floats up beside her head and fades.
+        private struct Note { public Point At; public double Born, Drift; public string Glyph; }
+        private readonly List<Note> notes = new List<Note>();
+        internal void Notes()
+        {
+            Point hand = sprite.HandPoint;
+            notes.Add(new Note { At = new Point(hand.X + (random.NextDouble() - 0.5) * 40, hand.Y - 70), Born = Now, Drift = (random.NextDouble() - 0.5) * 30, Glyph = random.NextDouble() < 0.5 ? "♪" : "♫" });
             InvalidateVisual();
         }
 
@@ -121,6 +133,12 @@ namespace Solin.Companion
                 Pen pen = new Pen(new SolidColorBrush(Color.FromArgb(alpha, s.Tint.R, s.Tint.G, s.Tint.B)), 2);
                 Point tail = new Point(s.At.X - s.Vel.X * 0.03, s.At.Y - s.Vel.Y * 0.03);
                 context.DrawLine(pen, tail, s.At);
+            }
+            foreach (Note n in notes)
+            {
+                double age = (now - n.Born) / 1.8;
+                FormattedText glyph = new FormattedText(n.Glyph, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 22, new SolidColorBrush(Color.FromArgb((byte)(255 * (1 - age)), 232, 72, 120)));
+                context.DrawText(glyph, new Point(n.At.X + n.Drift * age + Math.Sin(age * 6) * 6, n.At.Y - age * 60));
             }
             if (impactUntil > now)
             {

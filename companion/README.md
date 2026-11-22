@@ -116,6 +116,14 @@ When Claude runs a command, edits a file or goes on the web, sparks fly off
 her hand. An error or a hard landing flashes a red impact frame and tears a
 few slices of her sideways for a moment; her idle glitch tic tears too.
 
+## Music
+
+While Spotify or Apple Music plays, a small player sits under her feet:
+title, artist, time, a progress bar, previous, play-pause and next. She
+sways along and notes float up beside her. The apps are only asked what is
+playing while they are already running (macOS asks once whether Solin may
+control them); closing the player hides it until the next track.
+
 ## Possessing a window
 
 Seated on a window and left alone, once in a while she sinks into it: its
