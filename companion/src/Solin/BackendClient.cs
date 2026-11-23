@@ -61,9 +61,9 @@ namespace Solin.Companion
         // speak null leaves it to the backend's configured default.
         // image: a screenshot path for "look at my screen".
         // A glance at your screen: one short line about it, or null. The screenshot is the caller's to delete.
-        internal async Task<Reply?> Remark(string image)
+        internal async Task<Reply?> Remark(string image, int screens = 1)
         {
-            using (JsonDocument doc = JsonDocument.Parse(await Post("/remark", new { session_id = sessionId, image })))
+            using (JsonDocument doc = JsonDocument.Parse(await Post("/remark", new { session_id = sessionId, image, screens })))
             {
                 JsonElement root = doc.RootElement;
                 if (!root.TryGetProperty("visible", out JsonElement v) || v.ValueKind != JsonValueKind.String) return null;
@@ -72,11 +72,12 @@ namespace Solin.Companion
             }
         }
 
-        internal async Task<Reply> Chat(string text, bool? speak = null, string image = null)
+        // screens: how many screens the image shows side by side.
+        internal async Task<Reply> Chat(string text, bool? speak = null, string image = null, int screens = 1)
         {
             string json = speak.HasValue
-                ? await Post("/chat", new { session_id = sessionId, text, speak = speak.Value, image })
-                : await Post("/chat", new { session_id = sessionId, text, image });
+                ? await Post("/chat", new { session_id = sessionId, text, speak = speak.Value, image, screens })
+                : await Post("/chat", new { session_id = sessionId, text, image, screens });
             using (JsonDocument doc = JsonDocument.Parse(json))
             {
                 JsonElement root = doc.RootElement;
