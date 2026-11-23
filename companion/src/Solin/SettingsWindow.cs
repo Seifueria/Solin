@@ -50,8 +50,9 @@ namespace Solin.Companion
         private readonly NumericUpDown watchEvery = new NumericUpDown { Minimum = 1, Maximum = 60, Increment = 1, Value = 5, Width = 120, FontFamily = TalkLook.Mono, FontSize = 11 };
         private readonly ComboBox entrance = new ComboBox { Width = 170, FontFamily = TalkLook.Mono, FontSize = 11, ItemsSource = EntranceNames, SelectedIndex = 1 };
         // Shown names and the values saved for them; "off" skips the drawn entrance and she just fades in.
-        private static readonly string[] EntranceNames = { "off", "random", "eye (wake)", "wave hi (grab)", "screen" };
-        private static readonly string[] EntranceValues = { "off", "random", "wake", "grab", "screen" };
+        // The wave-hi (grab) entrance is off for now (Kaelen's call); a saved "grab" shows as random.
+        private static readonly string[] EntranceNames = { "off", "random", "eye (wake)", "screen" };
+        private static readonly string[] EntranceValues = { "off", "random", "wake", "screen" };
         private readonly TextBlock status = new TextBlock { FontFamily = TalkLook.Mono, FontSize = 10, Foreground = TalkLook.Dim, VerticalAlignment = VerticalAlignment.Center };
         private readonly List<(string name, RadioButton radio)> brains = new List<(string, RadioButton)>();
         private Point? dragFrom;
@@ -119,7 +120,7 @@ namespace Solin.Companion
             solinSection.Children.Add(Row("Break nudge (min, 0 off)", breakAfter));
             solinSection.Children.Add(Row("Entrance", entrance));
             WrapPanel replays = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(170, 0, 0, 0) };
-            foreach ((string label, string act) in new[] { ("Play eye", "replay-wake"), ("Play wave hi", "replay-grab"), ("Play screen", "replay-screen") })
+            foreach ((string label, string act) in new[] { ("Play eye", "replay-wake"), ("Play screen", "replay-screen") })
             {
                 Button b = Outline(label); b.Margin = new Thickness(0, 0, 8, 4);
                 string which = act;
@@ -263,7 +264,7 @@ namespace Solin.Companion
                 watch.IsChecked = !(c.TryGetProperty("watch_screen", out JsonElement ws) && ws.ValueKind == JsonValueKind.False);
                 if (c.TryGetProperty("watch_every_min", out JsonElement we) && we.ValueKind == JsonValueKind.Number) watchEvery.Value = (decimal)we.GetDouble();
                 string kind = c.TryGetProperty("entrance", out JsonElement en) ? en.GetString() : "random";
-                entrance.SelectedIndex = Math.Max(0, Array.IndexOf(EntranceValues, kind));
+                entrance.SelectedIndex = Array.IndexOf(EntranceValues, kind) is int at && at >= 0 ? at : 1;
             }
             status.Text = "";
         }

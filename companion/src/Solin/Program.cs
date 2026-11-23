@@ -1109,9 +1109,10 @@ namespace Solin.Companion
         {
             kind = kind ?? EntranceSetting();
             if (kind == "off") { sprite.Arrive(0.6); return; }
-            if (kind == "random")
+            // The wave-hi (grab) entrance is off for now (Kaelen's call): a saved "grab" plays one of the others.
+            if (kind == "random" || kind == "grab")
             {
-                string[] kinds = GrabWindow.Available ? new[] { "screen", "wake", "grab" } : new[] { "screen", "wake" };
+                string[] kinds = { "screen", "wake" };
                 kind = kinds[pick.Next(kinds.Length)];
             }
             if (kind == "grab" && GrabWindow.Available)
