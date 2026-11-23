@@ -128,8 +128,8 @@ namespace Solin.Companion
             {
                 double s = size / ChairSize;
                 canvas.HerPlace = new EmotePlace { Scale = s, Across = mirrored ? -s : s, Left = f.X + (mirrored ? ChairFootX : -ChairFootX) * s, Top = f.Y - ChairFootY * s };
-                double cs = clip.CloseHeight > 0 ? Height / clip.CloseHeight : 0;
-                canvas.ClosePlace = new EmotePlace { Scale = cs, Across = mirrored ? -cs : cs, Left = mirrored ? Width : 0, Top = 0 };
+                // The big close-up across the far side of the screen is left out (Kaelen's call); only her in the chair.
+                canvas.ClosePlace = new EmotePlace();
             }
             else
             {

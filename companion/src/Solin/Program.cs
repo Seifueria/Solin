@@ -73,7 +73,9 @@ namespace Solin.Companion
         private string playerDismissedFor;
         private DateTime pausedAt = DateTime.MaxValue;
         private bool possessPending;
-        private readonly DispatcherTimer skyTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
+        private readonly DispatcherTimer skyTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        // Spells she starts herself and ends herself: a nap, being put away, a stretch in mini form.
+        private DateTime? napUntil, selfAwayUntil, selfMiniUntil;
         // Which windows were on screen last look; a wholesale change means you swiped to another Space and she came along.
         private System.Collections.Generic.HashSet<long> sceneWas = new System.Collections.Generic.HashSet<long>();
         private readonly DispatcherTimer scene = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
@@ -322,11 +324,11 @@ namespace Solin.Companion
             vitalsTimer.Tick += async delegate { await vitals.Poll(); };
             Tray();
             // She turns to the star so the trail and bolt leave the hand on its side.
-            sky.Aiming = x => sprite.AimX = x;
+            sky.Aiming = p => { sprite.Aim = p; sprite.ArmAlways = p.HasValue; };
             sky.Zapped += delegate { sfx.Play("zap"); sprite.Jitter(0.3); sprite.React("jolt"); };
             mask.Clicked += delegate { FromMask(); };
             emote.Finished += delegate { if (emoteHid) { emoteHid = false; sprite.Arrive(0.35); } };
-            pointer.Aiming = x => sprite.AimX = x;
+            pointer.Aiming = p => { sprite.Aim = p; if (!p.HasValue) sprite.ArmAlways = false; };
             mask.Hovered += delegate { if (maskMode == "dream") FromMask(); };
             grab.Beat += delegate(string beat)
             {
@@ -341,16 +343,7 @@ namespace Solin.Companion
             possess.Finished += delegate { sfx.Play("zap"); sprite.Arrive(0.5); sprite.Jitter(0.35); flourish.Beam(sprite.ScreenCentre, sprite.BodySize); };
             sprite.Landed += delegate { if (possessPending) { possessPending = false; if (sprite.Seated) DispatcherTimer.RunOnce(BeginPossession, TimeSpan.FromMilliseconds(400)); } };
             // Now and then, when nothing is going on, she looks up at the sky; more often at night.
-            skyTimer.Tick += delegate
-            {
-                int hour = DateTime.Now.Hour;
-                double chance = hour >= 20 || hour < 6 ? 0.12 : 0.03;
-                if (pick.NextDouble() < chance) Stargaze();
-                // Seated and left alone, once in a while she climbs into the window she is sitting on.
-                else if (sprite.Seated && pick.NextDouble() < 0.04) Possess();
-                // On the floor, once in a while she pulls up her chair.
-                else if (!sprite.Seated && !sprite.Floating && pick.NextDouble() < 0.025) PlayEmote("chair");
-            };
+            skyTimer.Tick += delegate { IdleTurn(); };
             skyTimer.Start();
             // Music: the player shows under her while something plays, and she sways along.
             player.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height) - Px(16)));
@@ -407,6 +400,13 @@ namespace Solin.Companion
                 }
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SKY") == "1")
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[sky] started " + Stargaze(asked: true)), TimeSpan.FromSeconds(3));
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") == "1") skyTimer.Interval = TimeSpan.FromSeconds(4);
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSE") == "1")
+                {
+                    DispatcherTimer poseProbe = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+                    poseProbe.Tick += delegate { Console.WriteLine("[pose] " + sprite.ShownClip?.Title + " shift " + sprite.ShownClip?.ShiftY.ToString("0.000") + " left " + sprite.FacingLeft + " aim " + sprite.Aim + " hand " + sprite.HandScreen + " centre " + sprite.ScreenCentre); };
+                    poseProbe.Start();
+                }
                 string awayTo = Environment.GetEnvironmentVariable("SOLIN_DEBUG_AWAY_TO");
                 if (!string.IsNullOrEmpty(awayTo))
                 {
@@ -652,7 +652,7 @@ namespace Solin.Companion
             if (hidden || possess.Running) return false;
             if (sprite.Seated) { BeginPossession(); return true; }
             possessPending = true;
-            if (!sprite.TeleportToLedge(lie: false)) { possessPending = false; pill.Say("no window to climb into", 3, "SOLIN"); return false; }
+            if (!sprite.TeleportToLedge(lie: false)) { possessPending = false; if (asked) pill.Say("no window to climb into", 3, "SOLIN"); return false; }
             return true;
         }
 
@@ -781,7 +781,83 @@ namespace Solin.Companion
             if (hidden || sky.Running) return false;
             sfx.Play("soft");
             sprite.Flourish("cock");
-            sky.Gaze(() => sprite.HandScreen);
+            sky.Gaze(() => sprite.HandScreen, laser: !sprite.Seated);
+            return true;
+        }
+
+        // Left alone, she keeps herself busy. Every half minute, if nothing else is going on, she may do one thing, picked by
+        // weight: stargaze (more at night), an emote, climb into a window, teleport onto one or somewhere new, open the eye,
+        // lie down or sit up, nap, put herself away, or go small for a while. Her own spells end by themselves.
+        private void IdleTurn()
+        {
+            DateTime now = DateTime.Now;
+            bool rush = Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") == "1";
+            // Testing: her spells last seconds, not minutes.
+            if (rush) { if (napUntil > now.AddSeconds(8)) napUntil = now.AddSeconds(8); if (selfAwayUntil > now.AddSeconds(8)) selfAwayUntil = now.AddSeconds(8); if (selfMiniUntil > now.AddSeconds(8)) selfMiniUntil = now.AddSeconds(8); }
+            if (selfAwayUntil.HasValue && now >= selfAwayUntil.Value) { selfAwayUntil = null; if (maskMode == "away") FromMask(); return; }
+            if (selfMiniUntil.HasValue && now >= selfMiniUntil.Value) { selfMiniUntil = null; if (sprite.Mini) SetMini(false, self: true); return; }
+            if (napUntil.HasValue && now >= napUntil.Value) { napUntil = null; if (sprite.Asleep) { sprite.Wake(); sfx.Play("soft"); } return; }
+            bool busy = hidden || maskMode != null || thinking || sprite.Asleep || bubble.IsVisible || card.IsVisible || emote.Running || possess.Running
+                || sky.Running || wake.IsVisible || grab.IsVisible || typer.IsVisible || (chat.IsVisible && chat.IsActive) || agentState == "working" || agentState == "needs_you";
+            if (rush && busy) Console.WriteLine("[idle] busy");
+            if (busy || (!rush && pick.NextDouble() > 0.3 + sprite.Wanderlust * 0.6)) return;
+            int hour = now.Hour;
+            bool night = hour >= 20 || hour < 6;
+            System.Collections.Generic.List<(double weight, string what, Func<bool> act)> options = new System.Collections.Generic.List<(double, string, Func<bool>)>
+            {
+                (night ? 3.0 : 1.2, "stargaze", () => Stargaze()),
+                (2.0, "emote", () => PlayEmote(!sprite.Seated && !sprite.Floating && pick.NextDouble() < 0.6 ? "chair" : "heart")),
+                (sprite.Seated ? 2.5 : 1.5, "possess", () => Possess()),
+                (2.0, "seat", () => { bool ok = sprite.TeleportToLedge(lie: pick.NextDouble() < 0.4); if (ok) sfx.Play("zap"); return ok; }),
+                (1.2, "hop", HopSomewhere),
+                (1.0, "eye", IdleEye),
+                (sprite.Seated ? 1.5 : 0, "lie", () => { if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); return true; }),
+                (0.8, "nap", () => { sprite.Sleep(); napUntil = now.AddSeconds(60 + pick.NextDouble() * 120); return sprite.Asleep; }),
+                (0.5, "away", () => { ToMask("away"); selfAwayUntil = now.AddSeconds(60 + pick.NextDouble() * 90); return true; }),
+                (sprite.Mini ? 0 : 0.5, "mini", () => { SetMini(true, self: true); selfMiniUntil = now.AddMinutes(2 + pick.NextDouble() * 3); return true; }),
+            };
+            string only = Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE_ONLY");
+            if (rush && !string.IsNullOrEmpty(only)) options.RemoveAll(o => Array.IndexOf(only.Split(','), o.what) < 0);
+            // Two tries: if the first pick cannot happen here (no window to sit on, say), another.
+            for (int attempt = 0; attempt < 2 && options.Count > 0; attempt++)
+            {
+                double total = 0;
+                foreach ((double w, string _, Func<bool> _) in options) total += w;
+                double roll = pick.NextDouble() * total;
+                int chosen = 0;
+                for (; chosen < options.Count - 1; chosen++) { roll -= options[chosen].weight; if (roll <= 0) break; }
+                (double _, string what, Func<bool> act) = options[chosen];
+                bool done = act();
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") == "1") Console.WriteLine("[idle] " + now.ToString("HH:mm:ss") + " " + what + " " + (done ? "done" : "couldn't"));
+                if (done) return;
+                options.RemoveAt(chosen);
+            }
+        }
+
+        // A teleport to somewhere on the floor of her screen.
+        private bool HopSomewhere()
+        {
+            Screen screen = sprite.Screens.ScreenFromPoint(sprite.ScreenCentre) ?? sprite.Screens.Primary;
+            if (screen == null) return false;
+            PixelRect area = screen.WorkingArea;
+            sfx.Play("zap");
+            sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + (int)(area.Width * (0.1 + pick.NextDouble() * 0.8)), area.Bottom)));
+            return true;
+        }
+
+        // The eye, on her own: she goes, the eye opens over the screen and follows your cursor a while, then shuts down to a
+        // dot where she comes back, somewhere new on the floor.
+        private bool IdleEye()
+        {
+            Screen screen = sprite.Screens.ScreenFromPoint(sprite.ScreenCentre) ?? sprite.Screens.Primary;
+            if (screen == null) return false;
+            PixelRect area = screen.WorkingArea;
+            sprite.HideForEntrance();
+            sprite.PutAt(sprite.StandingAt(new PixelPoint(area.X + (int)(area.Width * (0.1 + pick.NextDouble() * 0.8)), area.Bottom)));
+            wake.Finished -= WakeDone;
+            wake.Finished += WakeDone;
+            sfx.Play("soft");
+            wake.Play(sprite.ScreenCentre, () => Mouse.Position(sprite.Screens.Primary?.Scaling ?? 1), hold: 2.5);
             return true;
         }
 
@@ -818,8 +894,10 @@ namespace Solin.Companion
             chat.Open(new PixelPoint(sprite.Position.X - Px(400), Math.Max(sprite.Screens.Primary?.WorkingArea.Y ?? 0, sprite.Position.Y - Px(200))));
         }
 
-        private void SetMini(bool mini)
+        // self: she chose it herself, for a spell; anything else (the menu, settings) is yours and ends her spell.
+        private void SetMini(bool mini, bool self = false)
         {
+            if (!self) selfMiniUntil = null;
             sfx.Play("zap");
             sprite.Resize(mini ? SpriteWindow.MiniSize : SpriteWindow.FullSize);
             sprite.React("dip");
@@ -870,7 +948,7 @@ namespace Solin.Companion
                 wake.Finished -= WakeDone;
                 wake.Finished += WakeDone;
                 sfx.Play("soft");
-                wake.Play(sprite.ScreenCentre);
+                wake.Play(sprite.ScreenCentre, () => Mouse.Position(sprite.Screens.Primary?.Scaling ?? 1));
                 return;
             }
             IntroFx intro = new IntroFx(sprite.BodyCentre, sprite.BodySize);
@@ -902,7 +980,7 @@ namespace Solin.Companion
             }
             else if (maskMode == "dream" && idle.Value < 2) FromMask();
             else if (sprite.Asleep && maskMode == null && sleptAt.HasValue && (DateTime.Now - sleptAt.Value).TotalMinutes > 10) ToMask("dream");
-            else if (sprite.Asleep && idle.Value < 2)
+            else if (sprite.Asleep && idle.Value < 2 && !(napUntil.HasValue && DateTime.Now < napUntil.Value))
             {
                 sprite.Wake();
                 sfx.Play("soft");

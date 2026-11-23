@@ -29,7 +29,8 @@ namespace Solin.Companion
         }
 
         // landing: where she will appear, in screen pixels; the eye fills the screen that point is on.
-        internal void Play(PixelPoint landing)
+        // cursor: where the mouse is, in screen pixels, for the iris to follow; null keeps it centred.
+        internal void Play(PixelPoint landing, Func<PixelPoint?> cursor = null, double hold = 0)
         {
             Screen screen = Screens.ScreenFromPoint(landing) ?? Screens.Primary;
             if (screen == null) { Finished?.Invoke(); return; }
@@ -37,7 +38,8 @@ namespace Solin.Companion
             PixelRect area = screen.Bounds;
             Position = area.Position;
             Width = area.Width / scale; Height = area.Height / scale;
-            canvas.Begin(new Size(Width, Height), new Point((landing.X - area.X) / scale, (landing.Y - area.Y) / scale));
+            canvas.Begin(new Size(Width, Height), new Point((landing.X - area.X) / scale, (landing.Y - area.Y) / scale), hold);
+            canvas.Looking = cursor == null ? null : () => { PixelPoint? c = cursor(); return c.HasValue ? new Point((c.Value.X - area.X) / scale, (c.Value.Y - area.Y) / scale) : (Point?)null; };
             if (!IsVisible) Show();
             Spaces.Front(this);
             frames.Start();
@@ -52,9 +54,19 @@ namespace Solin.Companion
         private static readonly Color Pink = Color.FromRgb(232, 72, 120), PinkLight = Color.FromRgb(246, 128, 168), Cyan = Color.FromRgb(58, 214, 235),
             CyanDeep = Color.FromRgb(20, 130, 170), Violet = Color.FromRgb(123, 61, 255), Paper = Color.FromRgb(245, 242, 248), Ink = Color.FromRgb(6, 5, 9);
         // Dim in, open, look, blink, shut, collapse.
-        private const double Dim = 0.25, Open = 0.75, Blink = 1.55, Shut = 2.05, Collapse = 2.35, End = 2.6;
+        private const double Dim = 0.25, Open = 0.75;
+        private double Blink = 1.55, Shut = 2.05, Collapse = 2.35, End = 2.6;
 
-        internal void Begin(Size size, Point land) { area = size; landing = land; clock.Restart(); InvalidateVisual(); }
+        // hold: extra seconds with the eye open, looking around, before the blink.
+        internal void Begin(Size size, Point land, double hold = 0)
+        {
+            area = size; landing = land; lookAt = default;
+            Blink = 1.55 + hold; Shut = 2.05 + hold; Collapse = 2.35 + hold; End = 2.6 + hold;
+            clock.Restart(); InvalidateVisual();
+        }
+        internal Func<Point?> Looking;
+        // Where the iris is looking now, eased toward the cursor.
+        private Vector lookAt;
 
         internal bool Step() { InvalidateVisual(); return clock.Elapsed.TotalSeconds < End; }
 
@@ -111,21 +123,33 @@ namespace Solin.Companion
 
                 // The iris, clipped to the open lids: black ring, cyan ring, spinning spokes, a pupil that tightens.
                 double r = Math.Min(halfH, area.Width * 0.22);
+                // The iris turns toward the cursor, as far as the lids allow.
+                Point? cur = Looking?.Invoke();
+                Vector want = default;
+                if (cur.HasValue)
+                {
+                    Vector d = cur.Value - centre;
+                    double len = Math.Max(1, Math.Sqrt(d.X * d.X + d.Y * d.Y));
+                    double k = Math.Min(1, len / (area.Width * 0.5));
+                    want = new Vector(d.X / len * halfW * 0.32 * k, d.Y / len * h * 0.3 * k);
+                }
+                lookAt += (want - lookAt) * 0.18;
+                Point eye = centre + lookAt;
                 using (g.PushGeometryClip(Almond(centre, halfW * 0.985, h * 0.97, 0)))
                 {
-                    g.DrawEllipse(Tint(Ink, 1), null, centre, r, r);
-                    g.DrawEllipse(null, new Pen(Tint(Cyan, 1), r * 0.06), centre, r * 0.88, r * 0.88);
-                    g.DrawEllipse(Tint(CyanDeep, 1), null, centre, r * 0.72, r * 0.72);
+                    g.DrawEllipse(Tint(Ink, 1), null, eye, r, r);
+                    g.DrawEllipse(null, new Pen(Tint(Cyan, 1), r * 0.06), eye, r * 0.88, r * 0.88);
+                    g.DrawEllipse(Tint(CyanDeep, 1), null, eye, r * 0.72, r * 0.72);
                     double spin = t * 1.6;
                     for (int i = 0; i < 48; i++)
                     {
                         double a = spin + i * Math.PI * 2 / 48;
                         double inner = r * 0.38, outer = r * (i % 2 == 0 ? 0.7 : 0.62);
-                        g.DrawLine(new Pen(Tint(Ink, 0.9), r * 0.03), new Point(centre.X + Math.Cos(a) * inner, centre.Y + Math.Sin(a) * inner), new Point(centre.X + Math.Cos(a) * outer, centre.Y + Math.Sin(a) * outer));
+                        g.DrawLine(new Pen(Tint(Ink, 0.9), r * 0.03), new Point(eye.X + Math.Cos(a) * inner, eye.Y + Math.Sin(a) * inner), new Point(eye.X + Math.Cos(a) * outer, eye.Y + Math.Sin(a) * outer));
                     }
-                    g.DrawEllipse(Tint(Cyan, 1), null, centre, r * 0.42, r * 0.42);
+                    g.DrawEllipse(Tint(Cyan, 1), null, eye, r * 0.42, r * 0.42);
                     double pupil = r * (0.3 - 0.1 * Ease((t - Open) / 0.5));
-                    g.DrawEllipse(Tint(Paper, 1), null, centre, pupil, pupil);
+                    g.DrawEllipse(Tint(Paper, 1), null, eye, pupil, pupil);
                 }
             }
             else if (t >= Shut && t < End)
