@@ -10,16 +10,18 @@ using Solin.Companion.Upstream;
 
 namespace Solin.Companion
 {
-    // Big flourishes that need more room than her own window: shards and a beam when she teleports, radial speed lines
-    // and a slanted cut-in of her face when a job is done. (Looks described from mochiiwuff/capri-desktop; no code taken.)
+    // Screen-sized flourishes: when she teleports, glitch bars tear across the whole screen at her height, she breaks into
+    // shards that fly wide, and a beam the full height of the display marks where she reforms; when a job is done, speed lines
+    // run out to the screen's edges and a cut-in of her face slides in. Click-through, so it never blocks anything.
+    // (Looks described from mochiiwuff/capri-desktop; no code taken.)
     internal sealed class FlourishWindow : Window
     {
-        private const double Wide = 900, Tall = 700;
         private readonly FlourishCanvas canvas = new FlourishCanvas();
-        private readonly Portrait face = new Portrait(120) { Round = false, IsVisible = false };
+        private readonly Portrait face = new Portrait(190) { Round = false, IsVisible = false };
         private readonly Border cutIn;
         private readonly DispatcherTimer frames = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
         private readonly DispatcherTimer done = new DispatcherTimer();
+        private PixelRect covering;
 
         internal Func<(Clip clip, int cell, Clip mouth, int mouthCell)> Frame { set { face.Frame = value; } }
 
@@ -27,13 +29,14 @@ namespace Solin.Companion
         {
             TalkLook.Floating(this);
             SizeToContent = SizeToContent.Manual;
-            Width = Wide; Height = Tall;
+            Width = 400; Height = 300;
             ShowActivated = false;
             IsHitTestVisible = false;
+            Spaces.ClickThrough(this);
             cutIn = new Border
             {
-                Child = face, BorderBrush = TalkLook.AccentBrush, BorderThickness = new Thickness(2), Background = new SolidColorBrush(Color.FromArgb(240, 18, 13, 24)),
-                Width = 260, Height = 124, IsVisible = false, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
+                Child = face, BorderBrush = TalkLook.AccentBrush, BorderThickness = new Thickness(3), Background = new SolidColorBrush(Color.FromArgb(245, 18, 13, 24)),
+                Width = 420, Height = 196, IsVisible = false, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
                 RenderTransform = new SkewTransform(-12, 0), ClipToBounds = true,
             };
             Grid layers = new Grid();
@@ -44,128 +47,180 @@ namespace Solin.Companion
             done.Tick += delegate { done.Stop(); cutIn.IsVisible = false; face.IsVisible = false; };
         }
 
-        // Centres the window on a screen point and shows it.
-        private void Around(PixelPoint centre)
+        // Covers the whole screen the point is on and returns the point in this window's own units.
+        private Point Cover(PixelPoint at)
         {
-            double scale = Screens.Primary?.Scaling ?? 1;
-            Position = new PixelPoint(centre.X - (int)(Wide * scale / 2), centre.Y - (int)(Tall * scale / 2));
+            Screen screen = Screens.ScreenFromPoint(at) ?? Screens.Primary;
+            double scale = screen?.Scaling ?? 1;
+            PixelRect area = screen?.Bounds ?? new PixelRect(at.X - 600, at.Y - 400, 1200, 800);
+            if (area != covering || !IsVisible)
+            {
+                covering = area;
+                Position = area.Position;
+                Width = area.Width / scale; Height = area.Height / scale;
+                canvas.Area = new Size(Width, Height);
+            }
             if (!IsVisible) Show();
+            Spaces.Front(this);
             frames.Start();
+            return new Point((at.X - area.X) / scale, (at.Y - area.Y) / scale);
         }
 
-        private static readonly Point Middle = new Point(Wide / 2, Tall / 2);
-
-        internal void Shatter(PixelPoint centre, double size) { Around(centre); canvas.Shatter(Middle, size); }
-        internal void Beam(PixelPoint centre, double size) { Around(centre); canvas.Beam(Middle, size); }
+        internal void Shatter(PixelPoint centre, double size) { canvas.Shatter(Cover(centre), size); }
+        internal void Beam(PixelPoint centre, double size) { canvas.Beam(Cover(centre), size); }
 
         internal void Burst(PixelPoint centre, double size)
         {
-            Around(centre);
-            canvas.Burst(Middle, size);
-            // The cut-in slides in from the right of her head and holds for a beat.
-            cutIn.Margin = new Thickness(Middle.X + size * 0.3, Middle.Y - size * 0.75, 0, 0);
+            Point at = Cover(centre);
+            canvas.Burst(at, size);
+            // The cut-in slides in beside her head and holds for a beat; kept on screen.
+            double x = Math.Min(at.X + size * 0.35, canvas.Area.Width - cutIn.Width - 30);
+            double y = Math.Max(20, at.Y - size * 0.9);
+            cutIn.Margin = new Thickness(x, y, 0, 0);
             cutIn.IsVisible = true;
             face.IsVisible = true;
-            done.Interval = TimeSpan.FromSeconds(1.4);
+            done.Interval = TimeSpan.FromSeconds(1.5);
             done.Start();
         }
     }
 
     internal sealed class FlourishCanvas : Control
     {
+        internal Size Area = new Size(1200, 800);
         private readonly Random random = new Random();
         private readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
         private double lastAt;
-        private static readonly Color[] Palette = { Color.FromRgb(255, 33, 82), Color.FromRgb(255, 33, 82), Color.FromRgb(20, 16, 28), Color.FromRgb(54, 255, 122), Color.FromRgb(123, 61, 255), Color.FromRgb(255, 244, 246) };
+        private static readonly Color Red = Color.FromRgb(255, 33, 82), Green = Color.FromRgb(54, 255, 122), Violet = Color.FromRgb(123, 61, 255), Paper = Color.FromRgb(255, 244, 246), Ink = Color.FromRgb(20, 16, 28);
+        private static readonly Color[] Palette = { Red, Red, Red, Ink, Green, Green, Violet, Paper };
 
         private struct Shard { public Point At, Vel; public double Angle, Spin, Born, Life, Size; public Color Tint; }
         private readonly List<Shard> shards = new List<Shard>();
-        private struct Ray { public double Angle, Inner, Outer, Width, Born, Life; public Color Tint; }
+        private struct Bar { public double Y, X, W, H, Born, Life, Drift; public Color Tint; }
+        private readonly List<Bar> bars = new List<Bar>();
+        private struct Ray { public Point From; public double Angle, Inner, Outer, Width, Born, Life; public Color Tint; }
         private readonly List<Ray> rays = new List<Ray>();
-        private Point beamAt; private double beamBorn = -10, beamTall;
-        private const double BeamLife = 0.35;
+        private Point beamAt; private double beamBorn = -10;
+        private const double BeamLife = 0.5;
 
-        internal bool Idle { get { double now = clock.Elapsed.TotalSeconds; return shards.Count == 0 && rays.Count == 0 && now - beamBorn > BeamLife; } }
+        private double Now { get { return clock.Elapsed.TotalSeconds; } }
+        private double Diagonal { get { return Math.Sqrt(Area.Width * Area.Width + Area.Height * Area.Height); } }
 
+        internal bool Idle { get { return shards.Count == 0 && rays.Count == 0 && bars.Count == 0 && Now - beamBorn > BeamLife; } }
+
+        // Her leaving: bars tear across the screen at her height, then she flies apart in shards that cross half the screen.
         internal void Shatter(Point centre, double size)
         {
-            double now = clock.Elapsed.TotalSeconds;
-            for (int i = 0; i < 46; i++)
+            double now = Now, reach = Math.Max(Area.Width, Area.Height);
+            for (int i = 0; i < 14; i++)
             {
-                double angle = random.NextDouble() * Math.PI * 2, speed = 150 + random.NextDouble() * 520;
+                double y = centre.Y + (random.NextDouble() - 0.5) * size * 1.2;
+                double w = Area.Width * (0.15 + random.NextDouble() * 0.55);
+                double x = Math.Clamp(centre.X - w * random.NextDouble(), -w * 0.2, Area.Width);
+                bars.Add(new Bar { Y = y, X = x, W = w, H = 2 + random.NextDouble() * 7, Born = now + random.NextDouble() * 0.12, Life = 0.25 + random.NextDouble() * 0.25, Drift = (random.NextDouble() - 0.5) * 900, Tint = i % 4 == 0 ? Paper : Palette[random.Next(Palette.Length)] });
+            }
+            for (int i = 0; i < 120; i++)
+            {
+                double angle = random.NextDouble() * Math.PI * 2, speed = reach * (0.25 + random.NextDouble() * 0.9);
                 Point from = new Point(centre.X + (random.NextDouble() - 0.5) * size * 0.5, centre.Y + (random.NextDouble() - 0.5) * size * 0.9);
-                shards.Add(new Shard { At = from, Vel = new Point(Math.Cos(angle) * speed, Math.Sin(angle) * speed - 80), Angle = random.NextDouble() * Math.PI, Spin = (random.NextDouble() - 0.5) * 14, Born = now, Life = 0.45 + random.NextDouble() * 0.4, Size = 4 + random.NextDouble() * 10, Tint = Palette[random.Next(Palette.Length)] });
+                shards.Add(new Shard { At = from, Vel = new Point(Math.Cos(angle) * speed, Math.Sin(angle) * speed * 0.7), Angle = random.NextDouble() * Math.PI, Spin = (random.NextDouble() - 0.5) * 16, Born = now + 0.08, Life = 0.55 + random.NextDouble() * 0.45, Size = size * (0.03 + random.NextDouble() * 0.07), Tint = Palette[random.Next(Palette.Length)] });
             }
             InvalidateVisual();
         }
 
-        internal void Beam(Point centre, double size) { beamAt = centre; beamTall = size * 1.6; beamBorn = clock.Elapsed.TotalSeconds; InvalidateVisual(); }
+        // Her arriving: a beam from the top of the screen to the bottom, white-hot and wide, thinning to a red thread.
+        internal void Beam(Point centre, double size) { beamAt = centre; beamBorn = Now; InvalidateVisual(); }
 
+        // A job done: speed lines from around her out past the screen's edges.
         internal void Burst(Point centre, double size)
         {
-            double now = clock.Elapsed.TotalSeconds;
-            for (int i = 0; i < 34; i++)
+            double now = Now, far = Diagonal;
+            for (int i = 0; i < 56; i++)
             {
                 double angle = random.NextDouble() * Math.PI * 2;
-                rays.Add(new Ray { Angle = angle, Inner = size * (0.5 + random.NextDouble() * 0.4), Outer = size * (1.4 + random.NextDouble() * 1.6), Width = 2 + random.NextDouble() * 9, Born = now + random.NextDouble() * 0.12, Life = 0.35 + random.NextDouble() * 0.3, Tint = Palette[random.Next(Palette.Length)] });
+                rays.Add(new Ray { From = centre, Angle = angle, Inner = size * (0.55 + random.NextDouble() * 0.5), Outer = far * (0.35 + random.NextDouble() * 0.7), Width = 3 + random.NextDouble() * 16, Born = now + random.NextDouble() * 0.12, Life = 0.4 + random.NextDouble() * 0.35, Tint = i % 3 == 0 ? Paper : Palette[random.Next(Palette.Length)] });
             }
             InvalidateVisual();
         }
 
         internal void Step()
         {
-            double now = clock.Elapsed.TotalSeconds, dt = Math.Min(0.05, Math.Max(0.001, now - lastAt));
+            double now = Now, dt = Math.Min(0.05, Math.Max(0.001, now - lastAt));
             lastAt = now;
             for (int i = 0; i < shards.Count; i++)
             {
                 Shard s = shards[i];
-                s.Vel = new Point(s.Vel.X * 0.97, s.Vel.Y + 700 * dt);
+                if (now < s.Born) continue;
+                s.Vel = new Point(s.Vel.X * 0.96, s.Vel.Y * 0.96 + Area.Height * 0.9 * dt);
                 s.At = new Point(s.At.X + s.Vel.X * dt, s.At.Y + s.Vel.Y * dt);
                 s.Angle += s.Spin * dt;
                 shards[i] = s;
             }
+            for (int i = 0; i < bars.Count; i++) { Bar b = bars[i]; b.X += b.Drift * dt; bars[i] = b; }
             shards.RemoveAll(s => now - s.Born > s.Life);
+            bars.RemoveAll(b => now - b.Born > b.Life);
             rays.RemoveAll(r => now - r.Born > r.Life);
             InvalidateVisual();
         }
 
+        private static IBrush Tint(Color c, double alpha) { return new SolidColorBrush(Color.FromArgb((byte)(255 * Math.Clamp(alpha, 0, 1)), c.R, c.G, c.B)); }
+
         public override void Render(DrawingContext context)
         {
-            double now = clock.Elapsed.TotalSeconds;
+            double now = Now;
+            foreach (Bar b in bars)
+            {
+                if (now < b.Born) continue;
+                double age = (now - b.Born) / b.Life;
+                context.FillRectangle(Tint(b.Tint, 1 - age * age), new Rect(b.X, b.Y, b.W, b.H));
+            }
             foreach (Shard s in shards)
             {
+                if (now < s.Born) continue;
                 double age = (now - s.Born) / s.Life;
-                byte alpha = (byte)(255 * Math.Clamp(1 - age * age, 0, 1));
                 using (context.PushTransform(Matrix.CreateRotation(s.Angle) * Matrix.CreateTranslation(s.At.X, s.At.Y)))
                 {
-                    // A slim diamond, like a chip of her.
                     StreamGeometry g = new StreamGeometry();
                     using (StreamGeometryContext c = g.Open())
                     {
-                        c.BeginFigure(new Point(-s.Size, 0), true); c.LineTo(new Point(0, -s.Size * 0.4)); c.LineTo(new Point(s.Size, 0)); c.LineTo(new Point(0, s.Size * 0.4)); c.EndFigure(true);
+                        c.BeginFigure(new Point(-s.Size, 0), true); c.LineTo(new Point(0, -s.Size * 0.38)); c.LineTo(new Point(s.Size, 0)); c.LineTo(new Point(0, s.Size * 0.38)); c.EndFigure(true);
                     }
-                    context.DrawGeometry(new SolidColorBrush(Color.FromArgb(alpha, s.Tint.R, s.Tint.G, s.Tint.B)), null, g);
+                    context.DrawGeometry(Tint(s.Tint, 1 - age * age), null, g);
                 }
             }
             foreach (Ray r in rays)
             {
                 if (now < r.Born) continue;
                 double age = (now - r.Born) / r.Life;
-                byte alpha = (byte)(255 * Math.Clamp(1 - age, 0, 1));
-                double inner = r.Inner + age * r.Outer * 0.5, outer = r.Outer + age * r.Outer * 0.3;
-                Point a = new Point(Bounds.Width / 2 + Math.Cos(r.Angle) * inner, Bounds.Height / 2 + Math.Sin(r.Angle) * inner);
-                Point b = new Point(Bounds.Width / 2 + Math.Cos(r.Angle) * outer, Bounds.Height / 2 + Math.Sin(r.Angle) * outer);
-                context.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(alpha, r.Tint.R, r.Tint.G, r.Tint.B)), r.Width * (1 - age * 0.6), lineCap: PenLineCap.Round), a, b);
+                double inner = r.Inner + age * r.Outer * 0.35, outer = r.Outer * (0.7 + age * 0.5);
+                Point a = new Point(r.From.X + Math.Cos(r.Angle) * inner, r.From.Y + Math.Sin(r.Angle) * inner);
+                Point b = new Point(r.From.X + Math.Cos(r.Angle) * outer, r.From.Y + Math.Sin(r.Angle) * outer);
+                // A tapered blade: wide near her, a point at the far end.
+                Vector dir = b - a; double len = Math.Max(1, Math.Sqrt(dir.X * dir.X + dir.Y * dir.Y));
+                Vector n = new Vector(-dir.Y / len, dir.X / len) * (r.Width * (1 - age * 0.6) / 2);
+                StreamGeometry blade = new StreamGeometry();
+                using (StreamGeometryContext c = blade.Open()) { c.BeginFigure(a + n, true); c.LineTo(b); c.LineTo(a - n); c.EndFigure(true); }
+                context.DrawGeometry(Tint(r.Tint, 1 - age), null, blade);
             }
             double beamAge = (now - beamBorn) / BeamLife;
             if (beamAge >= 0 && beamAge < 1)
             {
-                // A vertical column that is wide and white at first, then thins to a red thread and goes.
-                double width = Math.Max(1, 28 * (1 - beamAge)), tall = beamTall * (1 - beamAge * 0.3);
-                Rect column = new Rect(beamAt.X - width / 2, beamAt.Y - tall / 2, width, tall);
-                context.FillRectangle(new SolidColorBrush(Color.FromArgb((byte)(200 * (1 - beamAge)), 255, 33, 82)), column.Inflate(new Thickness(6, 0)));
-                context.FillRectangle(new SolidColorBrush(Color.FromArgb((byte)(160 * (1 - beamAge)), 123, 61, 255)), column.Inflate(new Thickness(3, 0)));
-                context.FillRectangle(new SolidColorBrush(Color.FromArgb((byte)(255 * (1 - beamAge)), 255, 244, 246)), column);
+                // Full height of the screen at her x. Wide and white first, then a thin red thread with a jagged edge, then gone.
+                double ease = 1 - Math.Pow(1 - beamAge, 2);
+                double core = Math.Max(2, Area.Width * 0.022 * (1 - ease));
+                double edge = core + 10 + 14 * (1 - ease);
+                double x = beamAt.X;
+                StreamGeometry jag = new StreamGeometry();
+                using (StreamGeometryContext c = jag.Open())
+                {
+                    int steps = 28;
+                    c.BeginFigure(new Point(x - edge / 2, 0), true);
+                    for (int i = 1; i <= steps; i++) c.LineTo(new Point(x - edge / 2 - random.NextDouble() * 8, Area.Height * i / steps));
+                    for (int i = steps; i >= 0; i--) c.LineTo(new Point(x + edge / 2 + random.NextDouble() * 8, Area.Height * i / steps));
+                    c.EndFigure(true);
+                }
+                context.DrawGeometry(Tint(Violet, 0.85 * (1 - beamAge)), null, jag);
+                context.FillRectangle(Tint(Red, 1 - beamAge * 0.8), new Rect(x - (core + 8) / 2, 0, core + 8, Area.Height));
+                context.FillRectangle(Tint(Paper, 1 - beamAge), new Rect(x - core / 2, 0, core, Area.Height));
             }
         }
     }

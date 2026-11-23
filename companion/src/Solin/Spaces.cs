@@ -17,28 +17,63 @@ namespace Solin.Companion
         private const long CanJoinAllSpaces = 1, MoveToActiveSpace = 2, Stationary = 16, FullScreenPrimary = 128, FullScreenAuxiliary = 256, FullScreenDisallowsTiling = 2048;
         private const long StatusLevel = 25;
 
-        // Applies once the native window exists; safe to call before it is shown.
+        // Level and behaviour as the window server sees them now, for checking nothing has reset them.
+        internal static string Describe(Window window)
+        {
+            if (!OperatingSystem.IsMacOS()) return "n/a";
+            IntPtr ns = window.TryGetPlatformHandle() is IMacOSTopLevelPlatformHandle mac ? mac.NSWindow : IntPtr.Zero;
+            if (ns == IntPtr.Zero) return "no window";
+            return "level " + GetNumber(ns, sel_registerName("level")) + " behaviour " + GetNumber(ns, sel_registerName("collectionBehavior")) + " visible " + GetNumber(ns, sel_registerName("isVisible")) + " onActiveSpace " + GetNumber(ns, sel_registerName("isOnActiveSpace"));
+        }
+
+        private static IntPtr Native(Window window)
+        {
+            try { return window.TryGetPlatformHandle() is IMacOSTopLevelPlatformHandle mac ? mac.NSWindow : IntPtr.Zero; }
+            catch (Exception) { return IntPtr.Zero; }
+        }
+
+        // Puts the flags on now and again whenever it opens: set before the window is first on screen, macOS honours them
+        // at once; set afterwards, only once the window is re-ordered.
         internal static void Everywhere(Window window)
         {
             if (!OperatingSystem.IsMacOS()) return;
-            void Apply()
+            Reassert(window);
+            window.Opened += delegate { Reassert(window); Front(window); };
+        }
+
+        // Joins every Space, sits over full-screen apps, at the status level. Cheap; safe to call often.
+        internal static void Reassert(Window window)
+        {
+            IntPtr ns = Native(window);
+            if (ns == IntPtr.Zero) return;
+            try
             {
-                try
-                {
-                    IntPtr ns = window.TryGetPlatformHandle() is IMacOSTopLevelPlatformHandle mac ? mac.NSWindow : IntPtr.Zero;
-                    if (ns == IntPtr.Zero) return;
-                    long behaviour = GetNumber(ns, sel_registerName("collectionBehavior"));
-                    behaviour = behaviour & ~(MoveToActiveSpace | FullScreenPrimary) | CanJoinAllSpaces | FullScreenAuxiliary | FullScreenDisallowsTiling;
-                    SetNumber(ns, sel_registerName("setCollectionBehavior:"), behaviour);
-                    long level = GetNumber(ns, sel_registerName("level"));
-                    if (level < StatusLevel) SetNumber(ns, sel_registerName("setLevel:"), StatusLevel);
-                    if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS")))
-                        Console.WriteLine("[spaces] " + window.Title + " behaviour " + GetNumber(ns, sel_registerName("collectionBehavior")) + " level " + GetNumber(ns, sel_registerName("level")));
-                }
-                catch (Exception) { }
+                long behaviour = GetNumber(ns, sel_registerName("collectionBehavior"));
+                long want = behaviour & ~(MoveToActiveSpace | FullScreenPrimary) | CanJoinAllSpaces | FullScreenAuxiliary | FullScreenDisallowsTiling;
+                if (want != behaviour) SetNumber(ns, sel_registerName("setCollectionBehavior:"), want);
+                if (GetNumber(ns, sel_registerName("level")) < StatusLevel) SetNumber(ns, sel_registerName("setLevel:"), StatusLevel);
+                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS")))
+                    Console.WriteLine("[spaces] " + window.Title + " behaviour " + GetNumber(ns, sel_registerName("collectionBehavior")) + " level " + GetNumber(ns, sel_registerName("level")));
             }
+            catch (Exception) { }
+        }
+
+        // To the front of its level without taking focus from whatever you are typing in.
+        internal static void Front(Window window)
+        {
+            if (!OperatingSystem.IsMacOS() || !window.IsVisible) return;
+            IntPtr ns = Native(window);
+            if (ns == IntPtr.Zero) return;
+            try { SetNumber(ns, sel_registerName("orderFrontRegardless"), 0); } catch (Exception) { }
+        }
+
+        // Clicks go straight through to whatever is underneath: for overlays that only draw.
+        internal static void ClickThrough(Window window)
+        {
+            if (!OperatingSystem.IsMacOS()) return;
+            void Apply() { IntPtr ns = Native(window); if (ns != IntPtr.Zero) try { SetNumber(ns, sel_registerName("setIgnoresMouseEvents:"), 1); } catch (Exception) { } }
+            Apply();
             window.Opened += delegate { Apply(); };
-            if (window.IsVisible) Apply();
         }
     }
 }

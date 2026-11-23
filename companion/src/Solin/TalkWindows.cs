@@ -183,6 +183,7 @@ namespace Solin.Companion
             TalkLook.Floating(this);
             ShowActivated = false;
             IsHitTestVisible = false;
+            Spaces.ClickThrough(this);
             tagPill.Child = tag;
             StackPanel header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
             StackPanel names = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
@@ -260,6 +261,7 @@ namespace Solin.Companion
             TalkLook.Floating(this);
             ShowActivated = false;
             IsHitTestVisible = false;
+            Spaces.ClickThrough(this);
             StackPanel row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
             row.Children.Add(new Border { Background = new SolidColorBrush(Color.FromRgb(255, 33, 82)), CornerRadius = new CornerRadius(2), Padding = new Thickness(5, 1), Child = chip, VerticalAlignment = VerticalAlignment.Center });
             row.Children.Add(text);
