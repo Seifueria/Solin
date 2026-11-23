@@ -400,10 +400,31 @@ namespace Solin.Companion.Upstream
             seat = null;
             floating = false;
             body.Lift = 0;
+            QuietLanding = false;
             teleportTo = target;
             teleportLanding = false;
             Play(glitch);
             TeleportStarted?.Invoke();
+        }
+
+        // Arriving from nowhere (a swipe to another desktop): she is put at target already gone, then reassembles over the
+        // glitch the way a teleport lands. quiet: no beam on landing (Solin skips it), just the glitch. Solin's addition.
+        internal bool QuietLanding;
+        internal void TeleportIn(PixelPoint target, bool quiet)
+        {
+            pendingSeat = null;
+            seat = null;
+            lying = false;
+            floating = false;
+            flying = false;
+            walking = false;
+            body.Lift = 0;
+            Position = target;
+            teleportTo = target;
+            teleportLanding = true;
+            arriveAt = -1;
+            QuietLanding = quiet;
+            Play(glitch);
         }
 
         // Her hip, in pixels from her window's top-left.
