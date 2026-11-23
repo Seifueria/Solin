@@ -248,9 +248,9 @@ namespace Solin.Companion
             sprite.Landed += delegate
             {
                 if (sprite.QuietLanding) { sprite.QuietLanding = false; sprite.Jitter(0.7); return; }
-                // A finished task gets the full arrival: the beam and the burst.
-                if (agentState == "done") { sprite.Jitter(0.25); flourish.Beam(sprite.ScreenCentre, sprite.BodySize); flourish.Burst(sprite.ScreenCentre, sprite.BodySize, panel: false); return; }
-                // Otherwise no beam (Kaelen's call: only a finished task gets one): sparks off her now and then, else just the glitch.
+                // No beam on any teleport for now (Kaelen's call). A finished task still gets its burst of speed lines and sparks.
+                if (agentState == "done") { sprite.Jitter(0.3); fx.Sparks(12); flourish.Burst(sprite.ScreenCentre, sprite.BodySize, panel: false); return; }
+                // Otherwise sparks off her now and then, else just the glitch.
                 if (pick.NextDouble() < 0.4) { sprite.Jitter(0.3); fx.Sparks(10); }
                 else sprite.Jitter(0.6);
             };
