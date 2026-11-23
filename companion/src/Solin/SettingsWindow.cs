@@ -45,6 +45,9 @@ namespace Solin.Companion
         private readonly NumericUpDown breakAfter = new NumericUpDown { Minimum = 0, Maximum = 600, Increment = 10, Width = 110, FormatString = "0", FontFamily = TalkLook.Mono, FontSize = 12 };
         private readonly CheckBox mini = new CheckBox { Content = Mono("Start in mini form", 11, TalkLook.Ink) };
         private readonly CheckBox login = new CheckBox { Content = Mono("Open at login", 11, TalkLook.Ink) };
+        private readonly CheckBox mischief = new CheckBox { Content = Mono("Mischief: cursor tugs, fake hacks, hop chains", 11, TalkLook.Ink), IsChecked = true };
+        private readonly CheckBox watch = new CheckBox { Content = Mono("Glance at my screen for things to say", 11, TalkLook.Ink), IsChecked = true };
+        private readonly NumericUpDown watchEvery = new NumericUpDown { Minimum = 1, Maximum = 60, Increment = 1, Value = 5, Width = 120, FontFamily = TalkLook.Mono, FontSize = 11 };
         private readonly ComboBox entrance = new ComboBox { Width = 170, FontFamily = TalkLook.Mono, FontSize = 11, ItemsSource = EntranceNames, SelectedIndex = 1 };
         // Shown names and the values saved for them; "off" skips the drawn entrance and she just fades in.
         private static readonly string[] EntranceNames = { "off", "random", "eye (wake)", "wave hi (grab)", "screen" };
@@ -126,6 +129,9 @@ namespace Solin.Companion
             solinSection.Children.Add(replays);
             solinSection.Children.Add(mini);
             solinSection.Children.Add(login);
+            solinSection.Children.Add(mischief);
+            solinSection.Children.Add(watch);
+            solinSection.Children.Add(Row("Glance every (min)", watchEvery));
             if (LoginItem.AppBundle == null) { login.IsEnabled = false; ToolTip.SetTip(login, "Available when she runs from Solin.app"); }
             form.Children.Add(solinSection);
 
@@ -253,6 +259,9 @@ namespace Solin.Companion
                 breakAfter.Value = c.TryGetProperty("break_after_min", out JsonElement bk) ? (decimal)bk.GetDouble() : 120;
                 mini.IsChecked = c.TryGetProperty("size", out JsonElement sz) && sz.GetString() == "mini";
                 login.IsChecked = LoginItem.Enabled;
+                mischief.IsChecked = !(c.TryGetProperty("mischief", out JsonElement mi) && mi.ValueKind == JsonValueKind.False);
+                watch.IsChecked = !(c.TryGetProperty("watch_screen", out JsonElement ws) && ws.ValueKind == JsonValueKind.False);
+                if (c.TryGetProperty("watch_every_min", out JsonElement we) && we.ValueKind == JsonValueKind.Number) watchEvery.Value = (decimal)we.GetDouble();
                 string kind = c.TryGetProperty("entrance", out JsonElement en) ? en.GetString() : "random";
                 entrance.SelectedIndex = Math.Max(0, Array.IndexOf(EntranceValues, kind));
             }
@@ -273,6 +282,9 @@ namespace Solin.Companion
                     sleep_after_min = (double)(sleepAfter.Value ?? 8), break_after_min = (double)(breakAfter.Value ?? 120),
                     size = mini.IsChecked == true ? "mini" : "full",
                     login = login.IsChecked == true,
+                    mischief = mischief.IsChecked == true,
+                    watch_screen = watch.IsChecked == true,
+                    watch_every_min = (double)(watchEvery.Value ?? 5),
                     entrance = entrance.SelectedIndex >= 0 ? EntranceValues[entrance.SelectedIndex] : "random",
                 },
             };

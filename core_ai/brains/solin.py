@@ -17,6 +17,9 @@ class OfflineBrain:
     def reply(self, text, context="", image=None, sentences=2):
         return "[offline] My brain's not plugged in yet. Set a key in core_ai/.env or start Ollama, then switch me.", "", persona.mood_of(text)
 
+    def remark(self, image, context=""):
+        return "", "neutral"
+
 
 class SolinBrain:
     def __init__(self, provider_name, settings, mem=None, preprompt=None):
@@ -45,6 +48,16 @@ class SolinBrain:
         self.mem.append({"user": text + (" [showed you their screen]" if image else ""), "solin_visible": visible, "solin_internal": internal})
         memory.save_memory(self.mem)
         return visible, internal, mood
+
+
+    def remark(self, image, context=""):
+        """One short line about a screenshot of what they are doing, in her voice. Not kept in her memory."""
+        system = f"{self.preprompt}\n{context}\n\n{persona.STYLE}"
+        ask = ("(You just glanced at their screen; the screenshot is attached. React to what they're doing in one short line, "
+               "under fifteen words, in your voice, like someone watching over their shoulder. Don't describe the screenshot. No emoji.)")
+        msgs = persona.history(self.mem, limit=6) + [{"role": "user", "content": ask}]
+        raw = self.provider.complete(system, msgs, max_tokens=60, image=image)
+        return persona.brief(persona.tidy(raw), "", 1), persona.mood_of(raw)
 
 
 def make_brain(name=None, config=None, mem=None):

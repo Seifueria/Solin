@@ -60,6 +60,18 @@ namespace Solin.Companion
 
         // speak null leaves it to the backend's configured default.
         // image: a screenshot path for "look at my screen".
+        // A glance at your screen: one short line about it, or null. The screenshot is the caller's to delete.
+        internal async Task<Reply?> Remark(string image)
+        {
+            using (JsonDocument doc = JsonDocument.Parse(await Post("/remark", new { session_id = sessionId, image })))
+            {
+                JsonElement root = doc.RootElement;
+                if (!root.TryGetProperty("visible", out JsonElement v) || v.ValueKind != JsonValueKind.String) return null;
+                string audio = root.TryGetProperty("audio", out JsonElement a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
+                return new Reply(v.GetString(), root.TryGetProperty("mood", out JsonElement m) ? m.GetString() : "neutral", audio, null);
+            }
+        }
+
         internal async Task<Reply> Chat(string text, bool? speak = null, string image = null)
         {
             string json = speak.HasValue

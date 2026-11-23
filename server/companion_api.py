@@ -199,6 +199,9 @@ def chat():
     sid, current = session(data.get("session_id"))
     error = None
     context = bond.prompt_lines()
+    fresh = [line for at, line in recent_remarks if time.time() - at < 900]
+    if fresh:
+        context += "\nThings you said lately, glancing at their screen: " + " / ".join(fresh)
     image = data.get("image")
     if image and not (isinstance(image, str) and os.path.isfile(image) and image.lower().endswith((".jpg", ".jpeg", ".png"))):
         image = None
@@ -380,6 +383,39 @@ def say():
             broadcast("speaking", {"on": False})
     broadcast("reply", {"session_id": sid, "visible": text, "mood": s["mood"], "audio": audio})
     return jsonify({"visible": text, "mood": s["mood"], "audio": audio})
+
+
+# What she said glancing at the screen lately, so chat can follow on from it for a while. Not kept in her memory.
+recent_remarks = []
+
+
+@app.post("/remark")
+def remark():
+    """A glance at their screen: one short line about what they're doing. The screenshot path comes from the companion,
+    which deletes it after; nothing is stored here."""
+    data = request.get_json(silent=True) or {}
+    image = data.get("image")
+    if not (isinstance(image, str) and os.path.isfile(image) and image.lower().endswith((".jpg", ".jpeg", ".png"))):
+        return jsonify({"error": "image required"}), 400
+    sid, current = session(data.get("session_id"))
+    try:
+        visible, mood = brain.remark(image, bond.prompt_lines())
+    except Exception as failure:  # noqa: BLE001
+        print(f"[companion_api] remark failed: {failure}", file=sys.stderr)
+        return jsonify({"visible": None})
+    if not visible:
+        return jsonify({"visible": None})
+    recent_remarks.append((time.time(), visible))
+    del recent_remarks[:-5]
+    s = set_mood(sid, mood if mood != "neutral" else current["mood"])
+    audio = None
+    if voice_default():
+        try:
+            from core_ai import speech
+            audio, _fresh = speech.speak(visible)
+        except Exception as failure:  # noqa: BLE001
+            print(f"[companion_api] voice: {failure}", file=sys.stderr)
+    return jsonify({"visible": visible, "mood": s["mood"], "audio": audio})
 
 
 @app.post("/event")
