@@ -59,8 +59,9 @@ namespace Solin.Companion
         private FrameFxWindow frameFx;
         // Which windows were on screen last look; a wholesale change means you swiped to another Space and she came along.
         private System.Collections.Generic.HashSet<long> sceneWas = new System.Collections.Generic.HashSet<long>();
-        private readonly DispatcherTimer scene = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        private readonly DispatcherTimer scene = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
         private DateTime lastSpaceHop = DateTime.MinValue;
+        private ulong spaceWas;
         private DateTime lastFront = DateTime.MinValue;
         private readonly Vitals vitals = new Vitals();
         private TrayIcon tray;
@@ -70,6 +71,7 @@ namespace Solin.Companion
         private int quietStage;
         private readonly DispatcherTimer quiet = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         private int tourStep = -1;
+        private bool lookPermissionAsked;
         private static readonly (string title, string line)[] Tour =
         {
             ("Hey. I'm Solin.", "This is me on your desk. Drag me anywhere. Drop me on a window and I'll sit on it; let go over nothing and I'll float."),
@@ -104,6 +106,7 @@ namespace Solin.Companion
 
         public override void OnFrameworkInitializationCompleted()
         {
+            Spaces.BeAgent();
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
                 sprite = new SpriteWindow();
@@ -291,7 +294,11 @@ namespace Solin.Companion
             scene.Start();
             quiet.Tick += delegate { QuietTicker(); };
             quiet.Start();
-            card.Acknowledged += delegate { NextTourCard(); };
+            card.Acknowledged += delegate
+            {
+                if (lookPermissionAsked) { lookPermissionAsked = false; ScreenShot.OpenPermissionPane(); return; }
+                NextTourCard();
+            };
             sprite.Opened += async delegate
             {
                 presence.Start();
@@ -332,6 +339,9 @@ namespace Solin.Companion
             MenuItem talk = new MenuItem { Header = "Quick line" };
             // A beat after the menu has closed, or its closing steals the focus straight back.
             talk.Click += delegate { DispatcherTimer.RunOnce(OpenTyper, TimeSpan.FromMilliseconds(180)); };
+            MenuItem lookItem = new MenuItem { Header = "Look at my screen" };
+            lookItem.Click += delegate { chat.AddYou("what am I doing?"); _ = Ask("what am I doing right now?", look: true); };
+            menu.Items.Add(lookItem);
             MenuItem lie = new MenuItem { Header = "Lie down" };
             lie.Click += delegate { if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); };
             menu.Items.Add(lie);
@@ -364,13 +374,15 @@ namespace Solin.Companion
                 show.Click += delegate { hidden = !hidden; if (hidden) { sprite.Hide(); bubble.Hide(); pill.Clear(); card.Dismiss(); } else sprite.Show(); show.Header = hidden ? "Show Solin" : "Hide Solin"; };
                 NativeMenuItem bring = new NativeMenuItem("Bring here");
                 bring.Click += delegate { settingsActionBring(); };
+                NativeMenuItem lookTray = new NativeMenuItem("Look at my screen");
+                lookTray.Click += delegate { chat.AddYou("what am I doing?"); _ = Ask("what am I doing right now?", look: true); };
                 NativeMenuItem chatItem = new NativeMenuItem("Chat window");
                 chatItem.Click += delegate { OpenChat(); };
                 NativeMenuItem settingsItem = new NativeMenuItem("Settings…");
                 settingsItem.Click += delegate { OpenSettings(); };
                 NativeMenuItem quitItem = new NativeMenuItem("Quit Solin");
                 quitItem.Click += delegate { if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desk) desk.Shutdown(); };
-                menu.Items.Add(show); menu.Items.Add(bring); menu.Items.Add(new NativeMenuItemSeparator()); menu.Items.Add(chatItem); menu.Items.Add(settingsItem); menu.Items.Add(new NativeMenuItemSeparator()); menu.Items.Add(quitItem);
+                menu.Items.Add(show); menu.Items.Add(bring); menu.Items.Add(new NativeMenuItemSeparator()); menu.Items.Add(lookTray); menu.Items.Add(chatItem); menu.Items.Add(settingsItem); menu.Items.Add(new NativeMenuItemSeparator()); menu.Items.Add(quitItem);
                 tray.Menu = menu;
                 tray.IsVisible = true;
             }
@@ -387,28 +399,38 @@ namespace Solin.Companion
             sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
         }
 
-        // Her window lives on every Space, so a swipe brings her along; this notices the swipe and sells it as a teleport.
+        // Her window lives on every Space, so a swipe brings her along; this notices the swipe from the desktop's own number
+        // and sells it as an arrival: she blinks out, the beam drops in front, and she reforms out of it.
         private void SceneCheck()
         {
-            System.Collections.Generic.HashSet<long> now = sprite.WindowIds();
-            if (sceneWas.Count >= 2 && now.Count >= 1)
+            ulong space = Spaces.ActiveSpace();
+            bool swiped;
+            if (space != 0)
             {
+                swiped = spaceWas != 0 && space != spaceWas;
+                spaceWas = space;
+            }
+            else
+            {
+                // Fallback when the desktop number cannot be read: most of the other windows changed at once.
+                System.Collections.Generic.HashSet<long> now = sprite.WindowIds();
                 int shared = 0;
                 foreach (long id in now) if (sceneWas.Contains(id)) shared++;
-                double overlap = shared / (double)Math.Max(sceneWas.Count, now.Count);
-                if (overlap < 0.34 && (DateTime.Now - lastSpaceHop).TotalSeconds > 2)
+                swiped = sceneWas.Count >= 2 && now.Count >= 1 && shared / (double)Math.Max(sceneWas.Count, now.Count) < 0.34;
+                sceneWas = now;
+            }
+            if (swiped && (DateTime.Now - lastSpaceHop).TotalSeconds > 0.6)
+            {
+                lastSpaceHop = DateTime.Now;
+                KeepInFront();
+                if (!hidden && !sprite.Asleep && !sprite.Seated)
                 {
-                    lastSpaceHop = DateTime.Now;
-                    KeepInFront();
-                    if (!hidden && !sprite.Asleep)
-                    {
-                        sfx.Play("zap");
-                        sprite.Jitter(0.35);
-                        flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
-                    }
+                    sprite.HideForEntrance();
+                    sfx.Play("zap");
+                    flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
+                    DispatcherTimer.RunOnce(() => { sprite.Arrive(0.55); sprite.Jitter(0.3); }, TimeSpan.FromMilliseconds(160));
                 }
             }
-            sceneWas = now;
             // Every few seconds as well: the flags back on if anything reset them, and her windows to the front of their level.
             if ((DateTime.Now - lastFront).TotalSeconds > 4) KeepInFront();
         }
@@ -418,7 +440,7 @@ namespace Solin.Companion
         {
             lastFront = DateTime.Now;
             if (hidden) return;
-            foreach (Window w in new Window[] { sprite, chat, settings, card, bubble, pill, typer })
+            foreach (Window w in new Window[] { sprite, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
             {
                 if (w == null) continue;
                 Spaces.Reassert(w);
@@ -472,6 +494,9 @@ namespace Solin.Companion
             if (c.TryGetProperty("sleep_after_min", out System.Text.Json.JsonElement sl)) SleepAfter = sl.GetDouble() * 60;
             if (c.TryGetProperty("break_after_min", out System.Text.Json.JsonElement br)) BreakAfter = br.GetDouble() * 60;
             if (c.TryGetProperty("size", out System.Text.Json.JsonElement sz)) sprite.Resize(sz.GetString() == "mini" ? SpriteWindow.MiniSize : SpriteWindow.FullSize);
+            // Open at login: on by default from the app, since that is the point of the app; the setting can turn it off.
+            bool wantLogin = !c.TryGetProperty("login", out System.Text.Json.JsonElement lg) || lg.ValueKind != System.Text.Json.JsonValueKind.False;
+            LoginItem.Set(wantLogin);
         }
 
         private async void OpenChat()
@@ -605,14 +630,36 @@ namespace Solin.Companion
             sprite.Talking = mouthHolds > 0;
         }
 
-        private async Task Ask(string text)
+        // Asking her to look: these take a screenshot first. Nothing is captured otherwise.
+        private static readonly System.Text.RegularExpressions.Regex LookAsk = new System.Text.RegularExpressions.Regex(
+            @"\b(look at|see|check|read)\b[^.?!]*\bscreen\b|\bwhat am i (doing|working on|looking at)\b|\bwhat do you see\b|\bwhat'?s on my screen\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        private async Task Ask(string text, bool look = false)
         {
             thinking = true;
             sprite.React("dip");
+            string shot = null;
             try
             {
                 chat.Thinking(true);
-                BackendClient.Reply reply = await backend.Chat(text);
+                if (look || LookAsk.IsMatch(text))
+                {
+                    pill.Say("looking at your screen…", 0, "SOLIN");
+                    shot = await ScreenShot.Capture();
+                    pill.Clear();
+                    if (shot == null)
+                    {
+                        thinking = false;
+                        chat.Thinking(false);
+                        card.Show("mac", "PERMISSION", Card.Red, "I can't see your screen yet.",
+                            "Turn Solin on in System Settings › Privacy & Security › Screen Recording, then quit and reopen me.", null, "OPEN SETTINGS", 30);
+                        lookPermissionAsked = true;
+                        return;
+                    }
+                    fx.Sparks(8);
+                }
+                BackendClient.Reply reply = await backend.Chat(text, null, shot);
                 thinking = false;
                 chat.Thinking(false);
                 mood.Set(reply.Mood, mood.Trust);
@@ -629,6 +676,7 @@ namespace Solin.Companion
                 chat.AddHer("[offline] i can't reach my backend right now.", "neutral", null);
                 bubble.Say("[offline] i can't reach my backend right now.", "neutral");
             }
+            finally { ScreenShot.Forget(shot); }
         }
     }
 }

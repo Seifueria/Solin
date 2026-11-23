@@ -1,4 +1,5 @@
 """Model providers. Each takes a system prompt and a chat-style message list and returns one reply string."""
+import base64
 import json
 import os
 import subprocess
@@ -9,11 +10,21 @@ import requests
 from .config import _key
 
 
+def _image_b64(path):
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode("ascii")
+
+
+def _media_type(path):
+    return "image/png" if path.lower().endswith(".png") else "image/jpeg"
+
+
 class Provider:
     name = "base"
     model = None
 
-    def complete(self, system, messages, max_tokens=400):
+    # image: a path to a screenshot the newest user message should be read with, or None.
+    def complete(self, system, messages, max_tokens=400, image=None):
         raise NotImplementedError
 
 
@@ -26,7 +37,11 @@ class OpenAICompat(Provider):
         self.base_url = (settings.get("base_url") or default_url).rstrip("/")
         self.key = _key(settings) or "ollama"
 
-    def complete(self, system, messages, max_tokens=400):
+    def complete(self, system, messages, max_tokens=400, image=None):
+        messages = [dict(m) for m in messages]
+        if image:
+            url = "data:%s;base64,%s" % (_media_type(image), _image_b64(image))
+            messages[-1]["content"] = [{"type": "text", "text": messages[-1]["content"]}, {"type": "image_url", "image_url": {"url": url}}]
         body = {"model": self.model, "messages": [{"role": "system", "content": system}] + messages, "max_tokens": max_tokens, "temperature": 0.8}
         r = requests.post(self.base_url + "/chat/completions", json=body, timeout=120,
                           headers={"Authorization": "Bearer " + self.key, "Content-Type": "application/json"})
@@ -43,7 +58,10 @@ class Ollama(Provider):
         self.model = settings.get("model", "gemma4:e4b")
         self.base_url = (settings.get("base_url") or "http://127.0.0.1:11434").rstrip("/")
 
-    def complete(self, system, messages, max_tokens=400):
+    def complete(self, system, messages, max_tokens=400, image=None):
+        messages = [dict(m) for m in messages]
+        if image:
+            messages[-1]["images"] = [_image_b64(image)]
         body = {"model": self.model, "stream": False, "think": False,
                 "messages": [{"role": "system", "content": system}] + messages,
                 "options": {"num_predict": max_tokens, "temperature": 0.8}}
@@ -60,7 +78,11 @@ class Anthropic(Provider):
         self.key = _key(settings)
         self.base_url = (settings.get("base_url") or os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com").rstrip("/")
 
-    def complete(self, system, messages, max_tokens=400):
+    def complete(self, system, messages, max_tokens=400, image=None):
+        messages = [dict(m) for m in messages]
+        if image:
+            messages[-1]["content"] = [{"type": "image", "source": {"type": "base64", "media_type": _media_type(image), "data": _image_b64(image)}},
+                                       {"type": "text", "text": messages[-1]["content"]}]
         body = {"model": self.model, "system": system, "messages": messages, "max_tokens": max_tokens, "temperature": 0.8}
         r = requests.post(self.base_url + "/v1/messages", json=body, timeout=120,
                           headers={"x-api-key": self.key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"})
@@ -79,15 +101,20 @@ class ClaudeCli(Provider):
         self.path = settings.get("path", "claude")
         self.model = settings.get("model", "sonnet")
 
-    def complete(self, system, messages, max_tokens=400):
+    def complete(self, system, messages, max_tokens=400, image=None):
         transcript = []
         for m in messages[:-1]:
             transcript.append(("User: " if m["role"] == "user" else "Solin: ") + m["content"])
-        prompt = "\n".join(transcript + ["User: " + messages[-1]["content"], "Solin:"])
+        last = messages[-1]["content"]
+        if image:
+            last = f"[Their screenshot is at {image}. Read that image first, then answer.] " + last
+        prompt = "\n".join(transcript + ["User: " + last, "Solin:"])
         # No tools, no saved session and no user settings: Solin's line in, Claude's line out, nothing else.
         # Not --bare: that mode skips the stored claude.ai login and answers "Not logged in".
+        # With a screenshot, only the Read tool, and only for the folder the screenshot is in.
+        tools = ["--tools", "Read", "--allowedTools", "Read", "--add-dir", os.path.dirname(image)] if image else ["--tools", ""]
         args = [self.path, "-p", "--output-format", "json", "--system-prompt", system, "--model", self.model,
-                "--tools", "", "--no-session-persistence", "--setting-sources", ""]
+                *tools, "--no-session-persistence", "--setting-sources", ""]
         with tempfile.TemporaryDirectory() as empty:
             done = subprocess.run(args, input=prompt, capture_output=True, text=True, timeout=180, cwd=empty)
         if done.returncode != 0:

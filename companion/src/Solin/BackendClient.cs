@@ -59,11 +59,12 @@ namespace Solin.Companion
         }
 
         // speak null leaves it to the backend's configured default.
-        internal async Task<Reply> Chat(string text, bool? speak = null)
+        // image: a screenshot path for "look at my screen".
+        internal async Task<Reply> Chat(string text, bool? speak = null, string image = null)
         {
             string json = speak.HasValue
-                ? await Post("/chat", new { session_id = sessionId, text, speak = speak.Value })
-                : await Post("/chat", new { session_id = sessionId, text });
+                ? await Post("/chat", new { session_id = sessionId, text, speak = speak.Value, image })
+                : await Post("/chat", new { session_id = sessionId, text, image });
             using (JsonDocument doc = JsonDocument.Parse(json))
             {
                 JsonElement root = doc.RootElement;
