@@ -248,9 +248,13 @@ namespace Solin.Companion
             sprite.Landed += delegate
             {
                 if (sprite.QuietLanding) { sprite.QuietLanding = false; sprite.Jitter(0.7); return; }
-                sprite.Jitter(0.25);
-                flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
-                if (agentState == "done") flourish.Burst(sprite.ScreenCentre, sprite.BodySize, panel: false);
+                // A finished task gets the full arrival: the beam and the burst.
+                if (agentState == "done") { sprite.Jitter(0.25); flourish.Beam(sprite.ScreenCentre, sprite.BodySize); flourish.Burst(sprite.ScreenCentre, sprite.BodySize, panel: false); return; }
+                // Otherwise the beam only some of the time (rarer in a quick chain): sparks off her, or just the glitch.
+                double roll = pick.NextDouble(), beam = sprite.TeleportSpeed > 1 ? 0.15 : 0.35;
+                if (roll < beam) { sprite.Jitter(0.25); flourish.Beam(sprite.ScreenCentre, sprite.BodySize); }
+                else if (roll < beam + 0.35) { sprite.Jitter(0.3); fx.Sparks(10); }
+                else sprite.Jitter(0.6);
             };
             voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => { voiceTalking = on; Mouth(on); }); };
             bubble.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
