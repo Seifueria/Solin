@@ -282,6 +282,16 @@ namespace Solin.Companion.Upstream
         // A short burst of slice glitching, like the base's tic but without the strip; decays on its own.
         private double glitchUntil = -1;
         internal void Jitter(double seconds) { glitchUntil = Now + seconds; }
+        // The numbers of every other window on screen right now; a wholesale change means the Space switched under her.
+        internal System.Collections.Generic.HashSet<long> WindowIds()
+        {
+            System.Collections.Generic.HashSet<long> ids = new System.Collections.Generic.HashSet<long>();
+            if (desk == null) return ids;
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            foreach (Spot spot in desk.Windows()) ids.Add(spot.Window);
+            return ids;
+        }
+
         // The frontmost window of any of these apps, in screen pixels, or null. For pointing at where Claude is.
         internal PixelRect? WindowOf(params string[] owners)
         {

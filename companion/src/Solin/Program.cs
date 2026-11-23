@@ -57,6 +57,10 @@ namespace Solin.Companion
         private FlourishWindow flourish;
         private PointerWindow pointer;
         private FrameFxWindow frameFx;
+        // Which windows were on screen last look; a wholesale change means you swiped to another Space and she came along.
+        private System.Collections.Generic.HashSet<long> sceneWas = new System.Collections.Generic.HashSet<long>();
+        private readonly DispatcherTimer scene = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        private DateTime lastSpaceHop = DateTime.MinValue;
         private readonly Vitals vitals = new Vitals();
         private TrayIcon tray;
         private bool hidden;
@@ -102,6 +106,7 @@ namespace Solin.Companion
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
                 sprite = new SpriteWindow();
+                Spaces.Everywhere(sprite);
                 sprite.HideForEntrance();
                 trail = new FxLayer(sprite, under: true);
                 fx = new FxLayer(sprite, under: false);
@@ -275,6 +280,8 @@ namespace Solin.Companion
             };
             vitalsTimer.Tick += async delegate { await vitals.Poll(); };
             Tray();
+            scene.Tick += delegate { SceneCheck(); };
+            scene.Start();
             quiet.Tick += delegate { QuietTicker(); };
             quiet.Start();
             card.Acknowledged += delegate { NextTourCard(); };
@@ -371,6 +378,29 @@ namespace Solin.Companion
             if (hidden) { hidden = false; sprite.Show(); }
             sfx.Play("zap");
             sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
+        }
+
+        // Her window lives on every Space, so a swipe brings her along; this notices the swipe and sells it as a teleport.
+        private void SceneCheck()
+        {
+            System.Collections.Generic.HashSet<long> now = sprite.WindowIds();
+            if (sceneWas.Count >= 2 && now.Count >= 1)
+            {
+                int shared = 0;
+                foreach (long id in now) if (sceneWas.Contains(id)) shared++;
+                double overlap = shared / (double)Math.Max(sceneWas.Count, now.Count);
+                if (overlap < 0.34 && (DateTime.Now - lastSpaceHop).TotalSeconds > 2)
+                {
+                    lastSpaceHop = DateTime.Now;
+                    if (!hidden && !sprite.Asleep)
+                    {
+                        sfx.Play("zap");
+                        sprite.Jitter(0.35);
+                        flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
+                    }
+                }
+            }
+            sceneWas = now;
         }
 
         // A task that has gone quiet: after fifteen seconds the pill says she's waiting on Claude's thinking, after a minute that it's slow.
