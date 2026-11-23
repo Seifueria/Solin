@@ -37,7 +37,7 @@ class SolinBrain:
         internal = self.provider.complete(system, msgs, max_tokens=120)
         mood = persona.mood_of(internal)
         system, msgs = persona.visible_messages(self.preprompt, self.mem, text, internal, mood, small=self.small, context=context)
-        visible = persona.tidy(self.provider.complete(system, msgs, max_tokens=400, image=image))
+        visible = persona.brief(persona.tidy(self.provider.complete(system, msgs, max_tokens=160, image=image)), text)
         # Personality-based internal fragment bleed, as in core_ai/ai_logic.py.
         bleed = 0.2 if mood in ("teasing", "annoyed") else 0.05 if mood in ("calm", "warm") else 0.1
         if internal and random.random() < bleed:

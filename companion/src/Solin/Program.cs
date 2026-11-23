@@ -36,7 +36,8 @@ namespace Solin.Companion
         private readonly Voice voice = new Voice();
         private readonly Sfx sfx = new Sfx();
         // The bubble typing and her voice playing each move her mouth; it stops when neither is on.
-        private int mouthHolds;
+        // Her mouth moves while her bubble is typing or her voice is playing; one flag each, so a stray start never sticks.
+        private bool bubbleTalking, voiceTalking;
         private bool thinking;
         // Throws in a row; the third one she takes personally.
         private int throws;
@@ -222,7 +223,7 @@ namespace Solin.Companion
             sprite.FlightLanded += delegate { sprite.React(throws >= 3 ? "jolt" : "dip"); if (throws >= 3) { fx.Impact(); sprite.Jitter(0.5); throws = 0; } };
             sprite.TalkAsked += delegate { OpenTyper(); };
             bubble.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
-            bubble.Speaking += delegate(bool on) { Mouth(on); sprite.Busy = on; possess.Talking = on; if (on) sfx.Play("tick"); };
+            bubble.Speaking += delegate(bool on) { bubbleTalking = on; Mouth(on); sprite.Busy = on; possess.Talking = on; if (on) sfx.Play("tick"); };
             flourish.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             // Leaving: she breaks into shards. Arriving: a column of light where she reforms. Done: speed lines and her face in a cut-in.
             sprite.TeleportStarted += delegate { flourish.Shatter(sprite.ScreenCentre, sprite.BodySize); };
@@ -230,14 +231,16 @@ namespace Solin.Companion
             {
                 sprite.Jitter(0.25);
                 flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
-                if (agentState == "done") flourish.Burst(sprite.ScreenCentre, sprite.BodySize, ArtLibrary.CutIn(pick.NextDouble() < 0.5 ? "grin" : "laugh"));
+                if (agentState == "done") flourish.Burst(sprite.ScreenCentre, sprite.BodySize, ArtLibrary.CutIn(pick.NextDouble() < 0.5 ? "grin" : "laugh"), avoid: TextRects());
             };
-            voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => Mouth(on)); };
+            voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => { voiceTalking = on; Mouth(on); }); };
             bubble.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             // Reference faces for her mood, when the art is on this Mac; the live crop otherwise.
             bubble.Still = () => ArtLibrary.Face(mood.Mood);
             chat.Still = () => ArtLibrary.Face(mood.Mood);
             pill.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.04)));
+            // One thing talks at a time: the card first, then her bubble, then the pill.
+            pill.Hold = () => card.IsVisible || bubble.IsVisible;
             sprite.PositionChanged += delegate { bubble.Reposition(); pill.Reposition(); };
             bristle.Tick += delegate { if (agentState == "needs_you") sprite.React("jolt"); else bristle.Stop(); };
             backend.AgentEvent += delegate(System.Text.Json.JsonElement root)
@@ -251,7 +254,7 @@ namespace Solin.Companion
                     int actions = r.TryGetProperty("actions", out System.Text.Json.JsonElement a) ? a.GetInt32() : 0;
                     int files = r.TryGetProperty("files", out System.Text.Json.JsonElement f) ? f.GetArrayLength() : 0;
                     int seconds = r.TryGetProperty("seconds", out System.Text.Json.JsonElement sec) ? sec.GetInt32() : 0;
-                    statsLine = actions + (actions == 1 ? " action" : " actions") + " · " + files + (files == 1 ? " file" : " files") + " · " + (seconds >= 60 ? seconds / 60 + " min" : seconds + " s");
+                    if (actions > 0 || files > 0) statsLine = actions + (actions == 1 ? " action" : " actions") + " · " + files + (files == 1 ? " file" : " files") + " · " + (seconds >= 60 ? seconds / 60 + " min" : seconds + " s");
                 }
                 Dispatcher.UIThread.Post(() => { agentProject = projectName ?? agentProject; Agent(state, detail, statsLine); });
             };
@@ -403,6 +406,15 @@ namespace Solin.Companion
                 }
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SKY") == "1")
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[sky] started " + Stargaze(asked: true)), TimeSpan.FromSeconds(3));
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_TALK") == "1")
+                {
+                    // Talking and typing checks: her mouth flags every two seconds, and the quick line opened and checked for the keyboard.
+                    DispatcherTimer talkProbe = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+                    talkProbe.Tick += delegate { Console.WriteLine("[talk] bubble " + bubbleTalking + " voice " + voiceTalking + " mouth " + sprite.Talking + " pill " + pill.IsVisible + " card " + card.IsVisible); };
+                    talkProbe.Start();
+                    DispatcherTimer.RunOnce(OpenTyper, TimeSpan.FromSeconds(4));
+                    DispatcherTimer.RunOnce(() => { Console.WriteLine("[typer] " + Spaces.Describe(typer) + " at " + typer.Position); typer.Hide(); }, TimeSpan.FromSeconds(5));
+                }
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_ROAM") == "1")
                 {
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[roam] started " + sprite.TeleportToLedge(lie: true)), TimeSpan.FromSeconds(3));
@@ -627,9 +639,8 @@ namespace Solin.Companion
             bool playing = t != null && t.Playing;
             sprite.Grooving = playing;
             if (playing) { noteTimer.Start(); pausedAt = DateTime.MaxValue; } else { noteTimer.Stop(); pausedAt = DateTime.Now; }
-            if (t == null) { player.Stop(); return; }
-            if (playing && t.Key != playerDismissedFor && !hidden) player.Show(t);
-            else if (player.IsVisible) player.Update(t);
+            // The mini-player is off for now (Kaelen's call); she still sways and the notes still float.
+            player.Stop();
         }
 
         private bool emoteHid;
@@ -807,6 +818,7 @@ namespace Solin.Companion
         private void Entrance(string kind = null)
         {
             kind = kind ?? EntranceSetting();
+            if (kind == "off") { sprite.Arrive(0.6); return; }
             if (kind == "random")
             {
                 string[] kinds = GrabWindow.Available ? new[] { "screen", "wake", "grab" } : new[] { "screen", "wake" };
@@ -913,7 +925,7 @@ namespace Solin.Companion
                         card.Show(agentProject, "WAITING", Card.Red, Pick(WaitLines), detail);
                         // A flash of her eyes beside her once she has landed by your cursor.
                         Avalonia.Media.Imaging.Bitmap eyes = ArtLibrary.CutIn("eyes");
-                        if (eyes != null) DispatcherTimer.RunOnce(() => flourish.Burst(sprite.ScreenCentre, sprite.BodySize, eyes, rays: false), TimeSpan.FromSeconds(1.4));
+                        if (eyes != null) DispatcherTimer.RunOnce(() => flourish.Burst(sprite.ScreenCentre, sprite.BodySize, eyes, rays: false, avoid: TextRects()), TimeSpan.FromSeconds(1.4));
                         PixelRect? home = sprite.WindowOf(ClaudeHomes);
                         if (home.HasValue) DispatcherTimer.RunOnce(() => { if (agentState == "needs_you") pointer.Point(() => sprite.HandScreen, () => sprite.WindowOf(ClaudeHomes)); }, TimeSpan.FromSeconds(1.3));
                         // Beside Claude's window, level with your cursor, so she can point at it; next to the cursor if there's no room.
@@ -979,10 +991,19 @@ namespace Solin.Companion
             }
         }
 
+        // The text boxes on screen now, in screen pixels, for effects to keep clear of.
+        private System.Collections.Generic.List<PixelRect> TextRects()
+        {
+            System.Collections.Generic.List<PixelRect> list = new System.Collections.Generic.List<PixelRect>();
+            double scale = sprite.Screens.Primary?.Scaling ?? 1;
+            foreach (Window w in new Window[] { card, bubble, pill })
+                if (w != null && w.IsVisible) list.Add(new PixelRect(w.Position, new PixelSize((int)(w.Bounds.Width * scale), (int)(w.Bounds.Height * scale))));
+            return list;
+        }
+
         private void Mouth(bool on)
         {
-            mouthHolds = Math.Max(0, mouthHolds + (on ? 1 : -1));
-            sprite.Talking = mouthHolds > 0;
+            sprite.Talking = bubbleTalking || voiceTalking;
         }
 
         // Asking her to look: these take a screenshot first. Nothing is captured otherwise.

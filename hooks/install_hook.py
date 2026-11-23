@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-EVENTS = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "PermissionRequest", "Stop", "SessionStart", "SessionEnd"]
+EVENTS = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "PermissionRequest", "PermissionDenied", "PostToolUseFailure", "Stop", "SessionStart", "SessionEnd"]
 HOOK = os.path.abspath(os.path.join(os.path.dirname(__file__), "solin_hook.py"))
 COMMAND = f"python3 {HOOK}"
 SETTINGS = os.path.expanduser("~/.claude/settings.json")

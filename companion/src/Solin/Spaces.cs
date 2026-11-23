@@ -23,7 +23,8 @@ namespace Solin.Companion
             if (!OperatingSystem.IsMacOS()) return "n/a";
             IntPtr ns = window.TryGetPlatformHandle() is IMacOSTopLevelPlatformHandle mac ? mac.NSWindow : IntPtr.Zero;
             if (ns == IntPtr.Zero) return "no window";
-            return "level " + GetNumber(ns, sel_registerName("level")) + " behaviour " + GetNumber(ns, sel_registerName("collectionBehavior")) + " visible " + GetNumber(ns, sel_registerName("isVisible")) + " onActiveSpace " + GetNumber(ns, sel_registerName("isOnActiveSpace"));
+            IntPtr app = Send(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
+            return "appActive " + GetNumber(app, sel_registerName("isActive")) + " canKey " + GetNumber(ns, sel_registerName("canBecomeKeyWindow")) + " key " + GetNumber(ns, sel_registerName("isKeyWindow")) + " level " + GetNumber(ns, sel_registerName("level")) + " behaviour " + GetNumber(ns, sel_registerName("collectionBehavior")) + " visible " + GetNumber(ns, sel_registerName("isVisible")) + " onActiveSpace " + GetNumber(ns, sel_registerName("isOnActiveSpace"));
         }
 
         private const string SkyLight = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight";
@@ -97,6 +98,20 @@ namespace Solin.Companion
             IntPtr ns = Native(window);
             if (ns == IntPtr.Zero) return;
             try { SetNumber(ns, sel_registerName("orderFrontRegardless"), 0); } catch (Exception) { }
+        }
+
+        // Brings this background app forward and makes the window key, so a text box in it gets the keyboard.
+        internal static void TakeKeyboard(Window window)
+        {
+            if (!OperatingSystem.IsMacOS()) return;
+            try
+            {
+                IntPtr app = Send(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
+                if (app != IntPtr.Zero) SetNumber(app, sel_registerName("activateIgnoringOtherApps:"), 1);
+                IntPtr ns = Native(window);
+                if (ns != IntPtr.Zero) SetNumber(ns, sel_registerName("makeKeyAndOrderFront:"), 0);
+            }
+            catch (Exception) { }
         }
 
         // Clicks go straight through to whatever is underneath: for overlays that only draw.

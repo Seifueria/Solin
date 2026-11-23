@@ -45,7 +45,10 @@ namespace Solin.Companion
         private readonly NumericUpDown breakAfter = new NumericUpDown { Minimum = 0, Maximum = 600, Increment = 10, Width = 110, FormatString = "0", FontFamily = TalkLook.Mono, FontSize = 12 };
         private readonly CheckBox mini = new CheckBox { Content = Mono("Start in mini form", 11, TalkLook.Ink) };
         private readonly CheckBox login = new CheckBox { Content = Mono("Open at login", 11, TalkLook.Ink) };
-        private readonly ComboBox entrance = new ComboBox { Width = 170, FontFamily = TalkLook.Mono, FontSize = 11, ItemsSource = new[] { "random", "screen", "wake", "grab" }, SelectedIndex = 0 };
+        private readonly ComboBox entrance = new ComboBox { Width = 170, FontFamily = TalkLook.Mono, FontSize = 11, ItemsSource = EntranceNames, SelectedIndex = 1 };
+        // Shown names and the values saved for them; "off" skips the drawn entrance and she just fades in.
+        private static readonly string[] EntranceNames = { "off", "random", "eye (wake)", "wave hi (grab)", "screen" };
+        private static readonly string[] EntranceValues = { "off", "random", "wake", "grab", "screen" };
         private readonly TextBlock status = new TextBlock { FontFamily = TalkLook.Mono, FontSize = 10, Foreground = TalkLook.Dim, VerticalAlignment = VerticalAlignment.Center };
         private readonly List<(string name, RadioButton radio)> brains = new List<(string, RadioButton)>();
         private Point? dragFrom;
@@ -113,7 +116,7 @@ namespace Solin.Companion
             solinSection.Children.Add(Row("Break nudge (min, 0 off)", breakAfter));
             solinSection.Children.Add(Row("Entrance", entrance));
             WrapPanel replays = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(170, 0, 0, 0) };
-            foreach ((string label, string act) in new[] { ("Play screen", "replay-screen"), ("Play wake", "replay-wake"), ("Play grab", "replay-grab") })
+            foreach ((string label, string act) in new[] { ("Play eye", "replay-wake"), ("Play wave hi", "replay-grab"), ("Play screen", "replay-screen") })
             {
                 Button b = Outline(label); b.Margin = new Thickness(0, 0, 8, 4);
                 string which = act;
@@ -251,7 +254,7 @@ namespace Solin.Companion
                 mini.IsChecked = c.TryGetProperty("size", out JsonElement sz) && sz.GetString() == "mini";
                 login.IsChecked = LoginItem.Enabled;
                 string kind = c.TryGetProperty("entrance", out JsonElement en) ? en.GetString() : "random";
-                entrance.SelectedIndex = Math.Max(0, Array.IndexOf(new[] { "random", "screen", "wake", "grab" }, kind));
+                entrance.SelectedIndex = Math.Max(0, Array.IndexOf(EntranceValues, kind));
             }
             status.Text = "";
         }
@@ -270,7 +273,7 @@ namespace Solin.Companion
                     sleep_after_min = (double)(sleepAfter.Value ?? 8), break_after_min = (double)(breakAfter.Value ?? 120),
                     size = mini.IsChecked == true ? "mini" : "full",
                     login = login.IsChecked == true,
-                    entrance = entrance.SelectedItem as string ?? "random",
+                    entrance = entrance.SelectedIndex >= 0 ? EntranceValues[entrance.SelectedIndex] : "random",
                 },
             };
         }

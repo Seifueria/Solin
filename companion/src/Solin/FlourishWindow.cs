@@ -69,18 +69,48 @@ namespace Solin.Companion
         internal void Shatter(PixelPoint centre, double size) { canvas.Shatter(Cover(centre), size); }
         internal void Beam(PixelPoint centre, double size) { canvas.Beam(Cover(centre), size); }
 
-        // cutInArt: a still for the cut-in panel; null shows her live face as before.
-        internal void Burst(PixelPoint centre, double size, Avalonia.Media.Imaging.Bitmap cutInArt = null, bool rays = true)
+        // cutInArt: a still for the cut-in panel; null shows her live face as before. avoid: text boxes on screen (card, bubble,
+        // pill) in screen pixels; the panel goes in the first spot beside her that keeps clear of them.
+        internal void Burst(PixelPoint centre, double size, Avalonia.Media.Imaging.Bitmap cutInArt = null, bool rays = true, System.Collections.Generic.IEnumerable<PixelRect> avoid = null)
         {
             Point at = Cover(centre);
-            cutIn.Child = cutInArt != null ? new Image { Source = cutInArt, Stretch = Stretch.UniformToFill } : (Control)face;
+            Screen screen = Screens.ScreenFromPoint(centre) ?? Screens.Primary;
+            double scale = screen?.Scaling ?? 1;
+            if (cutInArt != null)
+            {
+                // No bigger than about 1.35 of the art's own pixels, and never cropped, so it stays sharp.
+                double w = Math.Min(300, cutInArt.PixelSize.Width * 1.35 / scale);
+                cutIn.Width = w;
+                cutIn.Height = w * cutInArt.PixelSize.Height / cutInArt.PixelSize.Width;
+                Image still = new Image { Source = cutInArt, Stretch = Stretch.Uniform };
+                RenderOptions.SetBitmapInterpolationMode(still, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
+                cutIn.Child = still;
+            }
+            else { cutIn.Width = 420; cutIn.Height = 196; cutIn.Child = face; }
             if (rays) canvas.Burst(at, size);
-            // The cut-in slides in beside her head and holds for a beat; kept on screen.
-            double x = Math.Min(at.X + size * 0.35, canvas.Area.Width - cutIn.Width - 30);
-            double y = Math.Max(20, at.Y - size * 0.9);
-            cutIn.Margin = new Thickness(x, y, 0, 0);
+            System.Collections.Generic.List<Rect> keepOff = new System.Collections.Generic.List<Rect>();
+            if (avoid != null)
+                foreach (PixelRect r in avoid)
+                    keepOff.Add(new Rect((r.X - covering.X) / scale - 12, (r.Y - covering.Y) / scale - 12, r.Width / scale + 24, r.Height / scale + 24));
+            double cw = cutIn.Width, ch = cutIn.Height, gap = size * 0.35;
+            Point[] tries =
+            {
+                new Point(at.X + gap, at.Y - size * 0.9), new Point(at.X - gap - cw, at.Y - size * 0.9),
+                new Point(at.X + gap, at.Y - size * 0.25), new Point(at.X - gap - cw, at.Y - size * 0.25),
+                new Point(at.X - cw / 2, at.Y + size * 0.55), new Point(at.X - cw / 2, at.Y - size * 1.2 - ch),
+            };
+            Rect best = default; double bestOverlap = double.MaxValue;
+            foreach (Point p in tries)
+            {
+                Rect r = new Rect(Math.Clamp(p.X, 20, Math.Max(20, canvas.Area.Width - cw - 30)), Math.Clamp(p.Y, 20, Math.Max(20, canvas.Area.Height - ch - 20)), cw, ch);
+                double overlap = 0;
+                foreach (Rect k in keepOff) { Rect i = r.Intersect(k); if (i.Width > 0 && i.Height > 0) overlap += i.Width * i.Height; }
+                if (overlap < bestOverlap) { best = r; bestOverlap = overlap; }
+                if (overlap == 0) break;
+            }
+            cutIn.Margin = new Thickness(best.X, best.Y, 0, 0);
             cutIn.IsVisible = true;
-            face.IsVisible = true;
+            face.IsVisible = cutInArt == null;
             done.Interval = TimeSpan.FromSeconds(1.5);
             done.Start();
         }

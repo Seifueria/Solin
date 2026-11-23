@@ -431,6 +431,13 @@ def agent_state_of(event):
         tool = event.get("tool_name") or "a tool"
         gist = (event.get("gist") or "").strip()
         return "needs_you", ("claude wants to use " + tool + (": " + gist if gist else "")).lower()[:80]
+    if name == "PermissionDenied":
+        # Answered no: off the waiting card straight away, while Claude writes its reply.
+        return "working", "declined, claude's rethinking"
+    if name == "PostToolUseFailure":
+        if event.get("is_interrupt"):
+            return "idle", "stopped"
+        return "working", ((event.get("tool_name") or "a tool") + " didn't go through").lower()[:80]
     if name == "Notification":
         kind = event.get("notification_type") or ""
         text = (event.get("message") or "").strip()[:80]
