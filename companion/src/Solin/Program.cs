@@ -883,12 +883,12 @@ namespace Solin.Companion
                 (mischief ? 2.0 : 0, "chain", HopChain),
                 (mischief ? 1.0 : 0, "tug", TugCursor),
                 (mischief ? 1.0 : 0, "infect", Infect),
-                (mischief ? 1.0 : 0, "zapwin", ZapWindow),
+                (mischief ? 2.4 : 0, "zapwin", ZapWindow),
                 (1.0, "eye", IdleEye),
                 (sprite.Seated ? 1.5 : 0, "lie", () => { if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); return true; }),
                 (0.8, "nap", () => { sprite.Sleep(); napUntil = now.AddSeconds(60 + pick.NextDouble() * 120); return sprite.Asleep; }),
-                (0.5, "away", () => { ToMask("away"); selfAwayUntil = now.AddSeconds(60 + pick.NextDouble() * 90); return true; }),
-                (sprite.Mini ? 0 : 1.4, "mini", () => { SetMini(true, self: true); selfMiniUntil = now.AddMinutes(2 + pick.NextDouble() * 4); return true; }),
+                (1.5, "away", () => { ToMask("away"); selfAwayUntil = now.AddSeconds(60 + pick.NextDouble() * 90); return true; }),
+                (sprite.Mini ? 0 : 2.2, "mini", () => { SetMini(true, self: true); selfMiniUntil = now.AddMinutes(2 + pick.NextDouble() * 4); return true; }),
             };
             string only = Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE_ONLY");
             if (rush && !string.IsNullOrEmpty(only)) options.RemoveAll(o => Array.IndexOf(only.Split(','), o.what) < 0);
@@ -972,15 +972,27 @@ namespace Solin.Companion
         }
 
         // She points at some window and red lightning runs round it: hers now.
+        // Most of the time one window; sometimes it spreads to two or three in a row, a second apart.
         private bool ZapWindow()
         {
             System.Collections.Generic.List<PixelRect> windows = sprite.OtherWindows();
             if (windows.Count == 0) return false;
-            PixelRect target = windows[pick.Next(Math.Min(3, windows.Count))];
-            sfx.Play("zap");
-            frameFx.Race(target);
-            pointer.Point(() => sprite.HandScreen, () => target, true, "INFECTED");
-            DispatcherTimer.RunOnce(() => pointer.Stop(), TimeSpan.FromSeconds(2.2));
+            System.Collections.Generic.List<PixelRect> pool = windows.GetRange(0, Math.Min(5, windows.Count));
+            for (int i = pool.Count - 1; i > 0; i--) { int j = pick.Next(i + 1); (pool[i], pool[j]) = (pool[j], pool[i]); }
+            int spread = Math.Min(pool.Count, pick.NextDouble() < 0.4 ? 2 + pick.Next(2) : 1);
+            for (int i = 0; i < spread; i++)
+            {
+                int n = i;
+                PixelRect target = pool[n];
+                DispatcherTimer.RunOnce(() =>
+                {
+                    sfx.Play(n == 0 ? "zap" : "buzz");
+                    sprite.Jitter(0.25);
+                    frameFx.Race(target, 1.1);
+                    pointer.Point(() => sprite.HandScreen, () => target, n == 0, spread > 1 ? "INFECTED " + (n + 1) + "/" + spread : "INFECTED");
+                    if (n == spread - 1) DispatcherTimer.RunOnce(() => pointer.Stop(), TimeSpan.FromSeconds(2.2));
+                }, TimeSpan.FromSeconds(n * 1.1));
+            }
             return true;
         }
 
