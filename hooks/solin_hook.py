@@ -13,7 +13,9 @@ import urllib.request
 PORT = int(os.environ.get("SOLIN_COMPANION_PORT", "47831"))
 # Fields Solin uses. File contents and tool output stay on your machine.
 KEEP = ("hook_event_name", "session_id", "cwd", "tool_name", "notification_type", "message", "title",
-        "prompt", "error", "is_interrupt", "stop_hook_active", "last_assistant_message")
+        "prompt", "error", "is_interrupt", "stop_hook_active", "last_assistant_message",
+        # Where the chat's transcript is (a path only): a turn you stop sends no hook, so Solin reads it there.
+        "transcript_path")
 
 
 def trim(value, depth=0):
