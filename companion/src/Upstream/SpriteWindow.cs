@@ -68,6 +68,8 @@ namespace Solin.Companion.Upstream
         private double nextWander = 20;
         // True while something is being said, so tics and wandering wait. Solin sets it.
         internal bool Busy;
+        // True while music plays: she sways and bobs to it. Solin's addition.
+        internal bool Grooving;
 
         internal void Dance(double seconds) { if (!Asleep && !flying && !pressed) { danceUntil = Now + seconds; Play(dance); } }
 
@@ -150,6 +152,8 @@ namespace Solin.Companion.Upstream
         private int seatOffset;
         private double seatChecked;
         internal bool Seated { get { return seat != null; } }
+        // The window she is sitting on, where it is now, or null.
+        internal PixelRect? SeatBounds { get { Spot s = seat; return s == null ? (PixelRect?)null : s.Bounds; } }
         internal static readonly bool DebugPerch = Environment.GetEnvironmentVariable("SOLIN_DEBUG_PERCH") == "1";
 
         // Sits her on the first window she can see, for checking the seat without a drag. Returns what happened.
@@ -231,6 +235,34 @@ namespace Solin.Companion.Upstream
         // Fired once she has landed after a teleport, and when one begins.
         internal Action Landed;
         internal Action TeleportStarted;
+        // Roaming: now and then, left alone, she teleports onto some window's top edge and sits, sometimes lying straight down.
+        // Solin's addition over the base, in the manner of the Mochii build's idle jumps.
+        private Spot pendingSeat;
+        private bool lieOnArrival;
+        private double nextRoam = 150;
+
+        internal bool TeleportToLedge(bool lie)
+        {
+            if (desk == null) return false;
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            System.Collections.Generic.List<(Spot spot, int hipX)> choices = new System.Collections.Generic.List<(Spot, int)>();
+            foreach (Spot spot in desk.Windows())
+            {
+                if (seat != null && spot.Window == seat.Window) continue;
+                if (spot.Bounds.Width < Px(body.Size * 0.9)) continue;
+                int hipX = spot.Bounds.X + (int)(spot.Bounds.Width * (0.2 + random.NextDouble() * 0.6));
+                // Reachable and not hidden behind another window at that spot.
+                if (LedgeUnder(new PixelPoint(hipX, spot.Bounds.Y), 2)?.Window == spot.Window) choices.Add((spot, hipX));
+            }
+            if (choices.Count == 0) return false;
+            (Spot chosen, int x) = choices[random.Next(choices.Count)];
+            pendingSeat = chosen;
+            lieOnArrival = lie;
+            Teleport(new PixelPoint(x - Hip.X, chosen.Bounds.Y - Hip.Y));
+            pendingSeat = chosen;
+            return true;
+        }
+
         // Her body's centre in screen pixels, for effects drawn in other windows.
         internal PixelPoint ScreenCentre { get { return new PixelPoint(Position.X + Px(body.Centre.X), Position.Y + Px(body.Centre.Y - body.Lift)); } }
         // Body plus anything Solin draws over her, like the entrance.
@@ -291,6 +323,9 @@ namespace Solin.Companion.Upstream
             foreach (Spot spot in desk.Windows()) ids.Add(spot.Window);
             return ids;
         }
+
+        internal PixelRect? MenuBarItem() { if (desk == null) return null; desk.Scale = Screens.Primary?.Scaling ?? 1; return desk.OwnMenuBarItem(); }
+        internal string DumpAll() { return desk == null ? "" : desk.Dump(); }
 
         // The frontmost window of any of these apps, in screen pixels, or null. For pointing at where Claude is.
         internal PixelRect? WindowOf(params string[] owners)
@@ -360,6 +395,8 @@ namespace Solin.Companion.Upstream
         // Glitches out, moves to target (her window's top-left, in screen pixels) and glitches back in.
         internal void Teleport(PixelPoint target)
         {
+            // Any teleport cancels a seat chosen by an earlier one; TeleportToLedge sets its own again right after.
+            pendingSeat = null;
             seat = null;
             floating = false;
             body.Lift = 0;
@@ -575,8 +612,13 @@ namespace Solin.Companion.Upstream
             bool onFloor = seat == null && !flying && !pressed && !Asleep && !floating;
             if (walking && (pressed || flying || seat != null || Asleep)) { walking = false; }
             if (walking) Walk(dt);
-            bool quiet = !Busy && !pressed && !flying && !dragging && !walking && danceUntil < 0 && clip != glitch && clip != perchGlitch && clip != grin && !Asleep && teleportTo == null && arriveAt < 0;
+            bool quiet = !Busy && !Grooving && !pressed && !flying && !dragging && !walking && danceUntil < 0 && clip != glitch && clip != perchGlitch && clip != grin && !Asleep && teleportTo == null && arriveAt < 0;
             if (quiet && !lying && now >= nextTic) { nextTic = now + 30 + random.NextDouble() * 30; Play(seat != null ? perchGlitch : glitch); }
+            if (quiet && Wanderlust > 0 && now >= nextRoam && !Mini)
+            {
+                nextRoam = now + (180 + random.NextDouble() * 240) / Math.Max(0.1, Wanderlust);
+                if (random.NextDouble() < 0.6) TeleportToLedge(lie: random.NextDouble() < 0.5);
+            }
             if (quiet && !lying && flourish == null && now >= nextFlourish)
             {
                 nextFlourish = now + 35 + random.NextDouble() * 55;
@@ -606,6 +648,16 @@ namespace Solin.Companion.Upstream
                     teleportTo = null;
                     Play(idle);
                     Squash(0.6);
+                    if (pendingSeat != null)
+                    {
+                        Spot target = desk?.Find(pendingSeat.Window);
+                        pendingSeat = null;
+                        if (target != null)
+                        {
+                            Sit(target);
+                            if (lieOnArrival) LieDown();
+                        }
+                    }
                     Landed?.Invoke();
                 }
                 index = 0;
@@ -678,6 +730,12 @@ namespace Solin.Companion.Upstream
             // Breath and tilt scale with her size so they read the same at every size.
             double scale = body.Size / 240;
             body.Breathe = settled ? Math.Sin(now * BreathRate) * BreathDepth * scale : 0;
+            if (Grooving && settled && clip != sleep)
+            {
+                // A sway on the beat-ish and a small bob on every other half-beat.
+                body.Tilt += Math.Sin(now * 2.4) * 3.2;
+                body.Breathe -= Math.Abs(Math.Sin(now * 4.8)) * 3 * scale;
+            }
             // Hovering, she rides a slow swell on top of her breathing.
             if (floating && settled) body.Breathe += Math.Sin(now * 0.9) * 7 * scale;
             body.Tilt = walking ? Math.Sin(now * 9) * 1.2 : settled ? Math.Sin(now * TiltRate) * TiltDepth : flying ? Math.Clamp(flyVx / 60, -25, 25) : 0;

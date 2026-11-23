@@ -45,6 +45,7 @@ namespace Solin.Companion
         private readonly NumericUpDown breakAfter = new NumericUpDown { Minimum = 0, Maximum = 600, Increment = 10, Width = 110, FormatString = "0", FontFamily = TalkLook.Mono, FontSize = 12 };
         private readonly CheckBox mini = new CheckBox { Content = Mono("Start in mini form", 11, TalkLook.Ink) };
         private readonly CheckBox login = new CheckBox { Content = Mono("Open at login", 11, TalkLook.Ink) };
+        private readonly ComboBox entrance = new ComboBox { Width = 170, FontFamily = TalkLook.Mono, FontSize = 11, ItemsSource = new[] { "random", "screen", "wake" }, SelectedIndex = 0 };
         private readonly TextBlock status = new TextBlock { FontFamily = TalkLook.Mono, FontSize = 10, Foreground = TalkLook.Dim, VerticalAlignment = VerticalAlignment.Center };
         private readonly List<(string name, RadioButton radio)> brains = new List<(string, RadioButton)>();
         private Point? dragFrom;
@@ -98,7 +99,7 @@ namespace Solin.Companion
             // SOLIN
             StackPanel solinSection = Section("SOLIN >", null);
             WrapPanel actions = new WrapPanel { Orientation = Orientation.Horizontal };
-            foreach ((string label, string act) in new[] { ("Bring here", "bring"), ("Mini / Full", "mini"), ("Lie down / Sit up", "lie") })
+            foreach ((string label, string act) in new[] { ("Bring here", "bring"), ("Mini / Full", "mini"), ("Lie down / Sit up", "lie"), ("Show tour", "tour") })
             {
                 Button b = Outline(label); b.Margin = new Thickness(0, 0, 8, 6);
                 string which = act;
@@ -110,6 +111,16 @@ namespace Solin.Companion
             solinSection.Children.Add(Row("Wandering", wander));
             solinSection.Children.Add(Row("Sleep after (min)", sleepAfter));
             solinSection.Children.Add(Row("Break nudge (min, 0 off)", breakAfter));
+            solinSection.Children.Add(Row("Entrance", entrance));
+            WrapPanel replays = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(170, 0, 0, 0) };
+            foreach ((string label, string act) in new[] { ("Play screen", "replay-screen"), ("Play wake", "replay-wake") })
+            {
+                Button b = Outline(label); b.Margin = new Thickness(0, 0, 8, 4);
+                string which = act;
+                b.Click += delegate { Action?.Invoke(which); };
+                replays.Children.Add(b);
+            }
+            solinSection.Children.Add(replays);
             solinSection.Children.Add(mini);
             solinSection.Children.Add(login);
             if (LoginItem.AppBundle == null) { login.IsEnabled = false; ToolTip.SetTip(login, "Available when she runs from Solin.app"); }
@@ -239,6 +250,8 @@ namespace Solin.Companion
                 breakAfter.Value = c.TryGetProperty("break_after_min", out JsonElement bk) ? (decimal)bk.GetDouble() : 120;
                 mini.IsChecked = c.TryGetProperty("size", out JsonElement sz) && sz.GetString() == "mini";
                 login.IsChecked = LoginItem.Enabled;
+                string kind = c.TryGetProperty("entrance", out JsonElement en) ? en.GetString() : "random";
+                entrance.SelectedIndex = Math.Max(0, Array.IndexOf(new[] { "random", "screen", "wake" }, kind));
             }
             status.Text = "";
         }
@@ -257,6 +270,7 @@ namespace Solin.Companion
                     sleep_after_min = (double)(sleepAfter.Value ?? 8), break_after_min = (double)(breakAfter.Value ?? 120),
                     size = mini.IsChecked == true ? "mini" : "full",
                     login = login.IsChecked == true,
+                    entrance = entrance.SelectedItem as string ?? "random",
                 },
             };
         }

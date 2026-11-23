@@ -64,7 +64,10 @@ how often she blinks (see `src/Solin/MoodState.cs`).
 
 ## Her entrance
 
-On start she is not simply there: four brackets lock onto her spot, a line
+Two entrances, chosen in settings (random by default) and replayable there.
+"wake": the screen dims and a giant jagged eye in her colours opens, its
+iris spinning and pupil tightening, blinks, snaps shut to a line and
+collapses to a dot where she stands. "screen": four brackets lock onto her spot, a line
 flicks on and opens into a screen with rolling scanlines, the screen snaps
 to a dot, and she reassembles out of it. All drawn in code, no frames.
 
@@ -81,6 +84,7 @@ to a dot, and she reassembles out of it. All drawn in code, no frames.
 | poke her five times quickly (three when mini) | she is pestered: a jolt, a buzz, and her mood sours |
 | mini form | pocket size; she turns to watch the cursor. `SOLIN_MINI=1` starts her small |
 | seated a few quiet minutes | she lies down along the edge; the menu can ask her to lie down or sit up |
+| left alone a few minutes | now and then she teleports onto some window's top edge and sits, or lies straight down; "Find a seat" asks her to |
 | reply arrives | types into a bubble above her head, mouth moving, then fades |
 | you leave for 8 minutes | she falls asleep on her feet; back after 20 she wakes with a line |
 | left alone | a glitch tic every half minute or so; now and then she wanders along the floor |
@@ -111,6 +115,31 @@ Fast movement, a throw or a teleport landing, leaves afterimages of her.
 When Claude runs a command, edits a file or goes on the web, sparks fly off
 her hand. An error or a hard landing flashes a red impact frame and tears a
 few slices of her sideways for a moment; her idle glitch tic tears too.
+
+## Music
+
+While Spotify or Apple Music plays, a small player sits under her feet:
+title, artist, time, a progress bar, previous, play-pause and next. She
+sways along and notes float up beside her. The apps are only asked what is
+playing while they are already running (macOS asks once whether Solin may
+control them); closing the player hides it until the next track.
+
+## Possessing a window
+
+Seated on a window and left alone, once in a while she sinks into it: its
+frame goes jagged, glitch bars run across it, and it grows eyes that follow
+your cursor and a zigzag mouth that chatters while she talks. A few seconds
+later she pops back out on top. "Possess a window" in her menu asks for it;
+if she is not on a window she teleports onto one first. The window itself is
+never touched; this is all drawn over it.
+
+## Stargazing
+
+Now and then when nothing is going on, more often at night, she looks up:
+faint constellations fade in above her, a bright star appears on the far
+side of the screen, a dotted trail grows from her hand toward it, and she
+zaps it with lightning, a burst and a crosshair. "Stargaze" in her menu asks
+for it.
 
 ## Spaces
 

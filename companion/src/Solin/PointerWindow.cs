@@ -29,9 +29,10 @@ namespace Solin.Companion
         }
 
         // Starts pointing from the hand to the rectangle; both are re-read every tick so they can move.
-        internal void Point(Func<PixelPoint> handPoint, Func<PixelRect?> targetRect, bool withBolt = true)
+        internal void Point(Func<PixelPoint> handPoint, Func<PixelRect?> targetRect, bool withBolt = true, string label = "CLAUDE")
         {
             hand = handPoint; target = targetRect;
+            canvas.Label = label;
             if (!Fit()) return;
             if (withBolt) canvas.Bolt(0.7);
             if (!IsVisible) Show();
@@ -64,6 +65,7 @@ namespace Solin.Companion
     {
         internal Point Hand;
         internal Rect Target;
+        internal string Label = "CLAUDE";
         private readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
         // A bolt of lightning along the line for its first moments, then the dashed line takes over.
         internal double BoltUntil = -1;
@@ -118,8 +120,10 @@ namespace Solin.Companion
                 context.DrawLine(pen, c, new Point(c.X, c.Y + dy * arm));
             }
             // The CLAUDE chip, just above the top-left corner.
-            FormattedText label = new FormattedText("CLAUDE", System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface(TalkLook.Mono), 11, Brushes.White);
-            Rect chip = new Rect(Target.Left, Target.Top - label.Height - 12, label.Width + 14, label.Height + 6);
+            FormattedText label = new FormattedText(Label, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface(TalkLook.Mono), 11, Brushes.White);
+            Rect chip = Target.Top - label.Height - 12 < 0
+                ? new Rect(Target.Left - label.Width - 22, Target.Bottom + 8, label.Width + 14, label.Height + 6)
+                : new Rect(Target.Left, Target.Top - label.Height - 12, label.Width + 14, label.Height + 6);
             context.FillRectangle(new SolidColorBrush(Red), chip, 2);
             context.DrawText(label, new Point(chip.X + 7, chip.Y + 3));
         }

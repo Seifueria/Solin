@@ -57,6 +57,17 @@ namespace Solin.Companion
         private FlourishWindow flourish;
         private PointerWindow pointer;
         private FrameFxWindow frameFx;
+        private SkyWindow sky;
+        private PossessWindow possess;
+        private WakeWindow wake;
+        private readonly Music music = new Music();
+        private MusicPlayer player;
+        private readonly DispatcherTimer musicTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        private readonly DispatcherTimer noteTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.3) };
+        private string playerDismissedFor;
+        private DateTime pausedAt = DateTime.MaxValue;
+        private bool possessPending;
+        private readonly DispatcherTimer skyTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
         // Which windows were on screen last look; a wholesale change means you swiped to another Space and she came along.
         private System.Collections.Generic.HashSet<long> sceneWas = new System.Collections.Generic.HashSet<long>();
         private readonly DispatcherTimer scene = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
@@ -77,6 +88,7 @@ namespace Solin.Companion
             ("Hey. I'm Solin.", "This is me on your desk. Drag me anywhere. Drop me on a window and I'll sit on it; let go over nothing and I'll float."),
             ("Talk to me.", "Double-click me for a quick line, or right-click for my menu: chat window, settings, mini form, sleep, quit."),
             ("I watch Claude Code too.", "While it works I'll show what it's doing. When it needs you I'll come find your cursor and point at its window."),
+            ("My icon's up there.", "By the clock. Click it for my menu, or to hide me and bring me back."),
         };
         private readonly DispatcherTimer vitalsTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         // Apps Claude Code tends to live in, frontmost first.
@@ -125,6 +137,10 @@ namespace Solin.Companion
                 flourish = new FlourishWindow();
                 pointer = new PointerWindow();
                 frameFx = new FrameFxWindow();
+                sky = new SkyWindow();
+                possess = new PossessWindow();
+                wake = new WakeWindow();
+                player = new MusicPlayer();
                 desktop.MainWindow = sprite;
                 Wire();
                 desktop.Exit += delegate { voice.Stop(); backend.Dispose(); launcher.Dispose(); };
@@ -197,7 +213,7 @@ namespace Solin.Companion
             sprite.FlightLanded += delegate { sprite.React(throws >= 3 ? "jolt" : "dip"); if (throws >= 3) { fx.Impact(); sprite.Jitter(0.5); throws = 0; } };
             sprite.TalkAsked += delegate { OpenTyper(); };
             bubble.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
-            bubble.Speaking += delegate(bool on) { Mouth(on); sprite.Busy = on; if (on) sfx.Play("tick"); };
+            bubble.Speaking += delegate(bool on) { Mouth(on); sprite.Busy = on; possess.Talking = on; if (on) sfx.Play("tick"); };
             flourish.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             // Leaving: she breaks into shards. Arriving: a column of light where she reforms. Done: speed lines and her face in a cut-in.
             sprite.TeleportStarted += delegate { flourish.Shatter(sprite.ScreenCentre, sprite.BodySize); };
@@ -249,6 +265,9 @@ namespace Solin.Companion
                 {
                     case "bring": settingsActionBring(); break;
                     case "mini": SetMini(!sprite.Mini); break;
+                    case "replay-screen": Entrance("screen"); break;
+                    case "replay-wake": Entrance("wake"); break;
+                    case "tour": StartTour(); break;
                     case "lie": if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); break;
                     case "quit": if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desk) desk.Shutdown(); break;
                     case "test-voice":
@@ -284,6 +303,32 @@ namespace Solin.Companion
             };
             vitalsTimer.Tick += async delegate { await vitals.Poll(); };
             Tray();
+            sky.Zapped += delegate { sfx.Play("zap"); sprite.Jitter(0.3); sprite.React("jolt"); };
+            possess.Finished += delegate { sfx.Play("zap"); sprite.Arrive(0.5); sprite.Jitter(0.35); flourish.Beam(sprite.ScreenCentre, sprite.BodySize); };
+            sprite.Landed += delegate { if (possessPending) { possessPending = false; if (sprite.Seated) DispatcherTimer.RunOnce(BeginPossession, TimeSpan.FromMilliseconds(400)); } };
+            // Now and then, when nothing is going on, she looks up at the sky; more often at night.
+            skyTimer.Tick += delegate
+            {
+                int hour = DateTime.Now.Hour;
+                double chance = hour >= 20 || hour < 6 ? 0.12 : 0.03;
+                if (pick.NextDouble() < chance) Stargaze();
+                // Seated and left alone, once in a while she climbs into the window she is sitting on.
+                else if (sprite.Seated && pick.NextDouble() < 0.04) Possess();
+            };
+            skyTimer.Start();
+            // Music: the player shows under her while something plays, and she sways along.
+            player.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height) - Px(16)));
+            player.Command += delegate(string cmd) { _ = music.Control(cmd); };
+            player.Closed2 += delegate { playerDismissedFor = music.Now?.Key; };
+            music.Changed += delegate(Music.Track t) { Dispatcher.UIThread.Post(() => OnMusic(t)); };
+            musicTimer.Tick += async delegate
+            {
+                await music.Poll();
+                if (player.IsVisible) player.Update(music.Now);
+                if (music.Now != null && !music.Now.Playing && (DateTime.Now - pausedAt).TotalSeconds > 25) player.Stop();
+            };
+            noteTimer.Tick += delegate { if (sprite.Grooving && !hidden) fx.Notes(); };
+            musicTimer.Start();
             scene.Tick += delegate { SceneCheck(); };
             if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_LEVEL") == "1")
             {
@@ -306,6 +351,23 @@ namespace Solin.Companion
                 vitalsTimer.Start();
                 Entrance();
                 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_WINDOWS"))) Console.WriteLine("[windows] " + sprite.DescribeLedges());
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_ICON") == "1")
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[icon] " + (sprite.MenuBarItem()?.ToString() ?? "not found") + sprite.DumpAll()), TimeSpan.FromSeconds(3));
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSSESS") == "2")
+                    DispatcherTimer.RunOnce(() => { possess.Possess(() => new PixelRect(300, 300, 700, 420), 650, 5); Console.WriteLine("[possess] drawing on a test rectangle"); }, TimeSpan.FromSeconds(3));
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSSESS") == "1")
+                {
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[possess] started " + Possess(asked: true) + " seated " + sprite.Seated), TimeSpan.FromSeconds(3));
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[possess] at 5.5s running " + possess.Running + " " + sprite.DebugSeat()), TimeSpan.FromSeconds(5.5));
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[possess] at 13s running " + possess.Running + " " + sprite.DebugSeat()), TimeSpan.FromSeconds(13));
+                }
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SKY") == "1")
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[sky] started " + Stargaze(asked: true)), TimeSpan.FromSeconds(3));
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_ROAM") == "1")
+                {
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[roam] started " + sprite.TeleportToLedge(lie: true)), TimeSpan.FromSeconds(3));
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[roam] " + sprite.DebugSeat() + " lying " + sprite.Lying), TimeSpan.FromSeconds(6));
+                }
                 if (SpriteWindow.DebugPerch)
                 {
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[perch] " + sprite.DebugSit()), TimeSpan.FromSeconds(3));
@@ -342,6 +404,15 @@ namespace Solin.Companion
             MenuItem lookItem = new MenuItem { Header = "Look at my screen" };
             lookItem.Click += delegate { chat.AddYou("what am I doing?"); _ = Ask("what am I doing right now?", look: true); };
             menu.Items.Add(lookItem);
+            MenuItem possessItem = new MenuItem { Header = "Possess a window" };
+            possessItem.Click += delegate { Possess(asked: true); };
+            menu.Items.Add(possessItem);
+            MenuItem starItem = new MenuItem { Header = "Stargaze" };
+            starItem.Click += delegate { Stargaze(asked: true); };
+            menu.Items.Add(starItem);
+            MenuItem seatItem = new MenuItem { Header = "Find a seat" };
+            seatItem.Click += delegate { if (!sprite.TeleportToLedge(lie: true)) pill.Say("nowhere to sit", 3, "SOLIN"); };
+            menu.Items.Add(seatItem);
             MenuItem lie = new MenuItem { Header = "Lie down" };
             lie.Click += delegate { if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); };
             menu.Items.Add(lie);
@@ -440,7 +511,7 @@ namespace Solin.Companion
         {
             lastFront = DateTime.Now;
             if (hidden) return;
-            foreach (Window w in new Window[] { sprite, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
+            foreach (Window w in new Window[] { sprite, player, wake, possess, sky, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
             {
                 if (w == null) continue;
                 Spaces.Reassert(w);
@@ -466,11 +537,58 @@ namespace Solin.Companion
             if (tourStep >= Tour.Length)
             {
                 tourStep = -1;
+                pointer.Stop();
                 _ = backend.SaveSettings(new { companion = new { toured = true } });
                 return;
             }
             (string title, string line) = Tour[tourStep];
             card.Show("hello", "SYNC", Card.Violet, title, line, null, tourStep == Tour.Length - 1 ? "GOT IT" : "NEXT");
+            // The last card points at her menu-bar icon, if it can be found.
+            if (tourStep == Tour.Length - 1 && sprite.MenuBarItem().HasValue) pointer.Point(() => sprite.HandScreen, () => sprite.MenuBarItem(), true, "MY ICON");
+            else pointer.Stop();
+        }
+
+        // She sinks into a window and wears it for a few seconds; if she is not on one, she teleports onto one first.
+        private bool Possess(bool asked = false)
+        {
+            bool busy = hidden || thinking || sprite.Asleep || possess.Running || sky.Running || (agentState == "working" || agentState == "needs_you");
+            if (busy && !asked) return false;
+            if (hidden || possess.Running) return false;
+            if (sprite.Seated) { BeginPossession(); return true; }
+            possessPending = true;
+            if (!sprite.TeleportToLedge(lie: false)) { possessPending = false; pill.Say("no window to climb into", 3, "SOLIN"); return false; }
+            return true;
+        }
+
+        private void BeginPossession()
+        {
+            if (!sprite.Seated || possess.Running) return;
+            sfx.Play("buzz");
+            int entry = sprite.ScreenCentre.X;
+            sprite.HideForEntrance();
+            possess.Possess(() => sprite.SeatBounds, entry, 7);
+        }
+
+        private void OnMusic(Music.Track t)
+        {
+            bool playing = t != null && t.Playing;
+            sprite.Grooving = playing;
+            if (playing) { noteTimer.Start(); pausedAt = DateTime.MaxValue; } else { noteTimer.Stop(); pausedAt = DateTime.Now; }
+            if (t == null) { player.Stop(); return; }
+            if (playing && t.Key != playerDismissedFor && !hidden) player.Show(t);
+            else if (player.IsVisible) player.Update(t);
+        }
+
+        // She looks up: constellations, a star, a trail from her hand, then a zap. Only when nothing else is going on.
+        private bool Stargaze(bool asked = false)
+        {
+            bool busy = hidden || thinking || sprite.Asleep || sky.Running || bubble.IsVisible || card.IsVisible || (agentState == "working" || agentState == "needs_you");
+            if (busy && !asked) return false;
+            if (hidden || sky.Running) return false;
+            sfx.Play("soft");
+            sprite.Flourish("cock");
+            sky.Gaze(() => sprite.HandScreen);
+            return true;
         }
 
         // The typing box under her feet, centred.
@@ -514,13 +632,53 @@ namespace Solin.Companion
         }
 
         // The drawn entrance, then she reassembles out of the dot.
-        private void Entrance()
+        // Which entrance to play: "screen", "wake" or "random", from companion.entrance in data/config.json, read directly
+        // because her entrance plays before the backend is up.
+        private static string EntranceSetting()
         {
+            string env = Environment.GetEnvironmentVariable("SOLIN_ENTRANCE");
+            if (!string.IsNullOrEmpty(env)) return env;
+            try
+            {
+                string repo = BackendLauncher.FindRepo();
+                string file = repo == null ? null : System.IO.Path.Combine(repo, "data", "config.json");
+                if (file == null || !System.IO.File.Exists(file)) return "random";
+                string text = System.IO.File.ReadAllText(file).Trim();
+                if (text.Length == 0) return "random";
+                using (System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(text))
+                    if (doc.RootElement.TryGetProperty("companion", out System.Text.Json.JsonElement c) && c.TryGetProperty("entrance", out System.Text.Json.JsonElement e))
+                        return e.GetString() ?? "random";
+            }
+            catch (Exception) { }
+            return "random";
+        }
+
+        private void Entrance(string kind = null)
+        {
+            kind = kind ?? EntranceSetting();
+            if (kind == "random") kind = pick.NextDouble() < 0.5 ? "wake" : "screen";
+            if (kind == "wake")
+            {
+                sprite.HideForEntrance();
+                wake.Finished -= WakeDone;
+                wake.Finished += WakeDone;
+                sfx.Play("soft");
+                wake.Play(sprite.ScreenCentre);
+                return;
+            }
             IntroFx intro = new IntroFx(sprite.BodyCentre, sprite.BodySize);
             intro.ScreenLit += delegate { sfx.Play("zap"); };
             intro.Finished += delegate { sprite.Layers.Children.Remove(intro); sprite.Arrive(0.8); sfx.Play("soft"); };
             sprite.Layers.Children.Add(intro);
             intro.Start();
+        }
+
+        private void WakeDone()
+        {
+            sfx.Play("zap");
+            sprite.Arrive(0.7);
+            sprite.Jitter(0.3);
+            flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
         }
 
         // Once a second: sleep when you have been away a while, wake when you return, nudge a break after two hours of no pauses.
