@@ -352,6 +352,13 @@ namespace Solin.Companion.Upstream
             return ids;
         }
 
+        // Whether her window is drawn on a screen now (false once a swipe has left it on a desktop out of view). Solin's addition.
+        internal bool Showing()
+        {
+            long number = Spaces.Number(this);
+            return desk == null || number == 0 || desk.Showing(number);
+        }
+
         internal PixelRect? MenuBarItem() { if (desk == null) return null; desk.Scale = Screens.Primary?.Scaling ?? 1; return desk.OwnMenuBarItem(); }
         internal string DumpAll() { return desk == null ? "" : desk.Dump(); }
 
@@ -515,7 +522,7 @@ namespace Solin.Companion.Upstream
         // Within a body's height of the bottom of her screen: close enough to just land.
         private bool NearFloor()
         {
-            Screen screen = Screens.ScreenFromPoint(new PixelPoint(Position.X + Px(Width / 2), Position.Y + Px(Height))) ?? Screens.Primary;
+            Screen screen = Screens.ScreenFromPoint(new PixelPoint(Position.X + Px(Width / 2), Position.Y + Px(Height) - 1)) ?? Screens.Primary;
             return screen == null || Position.Y + Px(Height) > screen.WorkingArea.Bottom - Px(body.Size);
         }
 
@@ -560,7 +567,8 @@ namespace Solin.Companion.Upstream
         // Her window's top-left that puts her feet at a screen point, kept inside that screen's work area.
         internal PixelPoint StandingAt(PixelPoint feet)
         {
-            Screen screen = Screens.ScreenFromPoint(feet) ?? Screens.Primary;
+            // Feet on a screen's bottom edge stand on that screen, not on one below it that starts there. Solin's fix.
+            Screen screen = Screens.ScreenFromPoint(new PixelPoint(feet.X, feet.Y - 1)) ?? Screens.ScreenFromPoint(feet) ?? Screens.Primary;
             int wide = Px(Width), tall = Px(Height);
             int x = feet.X - wide / 2, y = feet.Y - tall;
             if (screen != null)

@@ -120,6 +120,13 @@ namespace Solin.Companion
             catch (Exception) { }
         }
 
+        // The window server's number for a window, or 0.
+        internal static long Number(Window window)
+        {
+            IntPtr ns = Native(window);
+            try { return ns == IntPtr.Zero ? 0 : GetNumber(ns, sel_registerName("windowNumber")); } catch (Exception) { return 0; }
+        }
+
         private static IntPtr Native(Window window)
         {
             try { return window.TryGetPlatformHandle() is IMacOSTopLevelPlatformHandle mac ? mac.NSWindow : IntPtr.Zero; }

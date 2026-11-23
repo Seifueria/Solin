@@ -98,6 +98,8 @@ namespace Solin.Companion
         private readonly DispatcherTimer scene = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
         private DateTime lastSpaceHop = DateTime.MinValue;
         private ulong spaceWas;
+        // With two or more displays: how many checks in a row her window has been out of view.
+        private int outOfView;
         private DateTime lastFront = DateTime.MinValue;
         private readonly Vitals vitals = new Vitals();
         private TrayIcon tray;
@@ -393,7 +395,19 @@ namespace Solin.Companion
             // A chain of quick hops: the next one as soon as she lands, until it runs out.
             sprite.Landed += delegate
             {
-                if (hopsLeft > 0) { hopsLeft--; DispatcherTimer.RunOnce(() => { if (pick.NextDouble() < 0.45 && sprite.TeleportToLedge(lie: false)) sfx.Play("zap"); else HopSomewhere(); }, TimeSpan.FromMilliseconds(140)); }
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SCREENS") == "1")
+                    Console.WriteLine("[screens] landed at " + sprite.Position + " on " + (sprite.Screens.ScreenFromPoint(sprite.ScreenCentre)?.Bounds.ToString() ?? "?") + " render " + sprite.RenderScaling + " frame " + Spaces.Describe(sprite) + " centre " + sprite.ScreenCentre + " hand " + sprite.HandScreen);
+                if (hopsLeft > 0)
+                {
+                    hopsLeft--;
+                    DispatcherTimer.RunOnce(() =>
+                    {
+                        double roll = pick.NextDouble();
+                        if (roll < 0.25 && sprite.Screens.All.Count > 1) HopScreens();
+                        else if (roll < 0.6 && sprite.TeleportToLedge(lie: false)) sfx.Play("zap");
+                        else HopSomewhere();
+                    }, TimeSpan.FromMilliseconds(140));
+                }
                 else sprite.TeleportSpeed = 1;
             };
             skyTimer.Start();
@@ -473,9 +487,9 @@ namespace Solin.Companion
                     {
                         ulong active = Spaces.ActiveSpace(), away = 0;
                         foreach (string part in awayTo.Split(',')) if (ulong.TryParse(part, out ulong id) && id != active) { away = id; break; }
-                        Console.WriteLine("[space] active " + active + " on it " + Spaces.OnActiveSpace(sprite) + "; sending to " + away);
+                        Console.WriteLine("[space] active " + active + " on it " + Spaces.OnActiveSpace(sprite) + " showing " + sprite.Showing() + "; sending to " + away);
                         Spaces.MoveTo(sprite, away);
-                        DispatcherTimer.RunOnce(() => Console.WriteLine("[space] sent away, on active " + Spaces.OnActiveSpace(sprite)), TimeSpan.FromMilliseconds(300));
+                        DispatcherTimer.RunOnce(() => Console.WriteLine("[space] sent away, on active " + Spaces.OnActiveSpace(sprite) + " showing " + sprite.Showing()), TimeSpan.FromMilliseconds(300));
                     }, TimeSpan.FromSeconds(4));
                     DispatcherTimer.RunOnce(() => { FollowToDesktop(); Console.WriteLine("[space] after follow, on active " + Spaces.OnActiveSpace(sprite)); }, TimeSpan.FromSeconds(6));
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[space] landed? clip " + sprite.ShownClip?.Title + " pos " + sprite.Position), TimeSpan.FromSeconds(8.5));
@@ -640,6 +654,16 @@ namespace Solin.Companion
                 foreach (long id in now) if (sceneWas.Contains(id)) shared++;
                 swiped = sceneWas.Count >= 2 && now.Count >= 1 && shared / (double)Math.Max(sceneWas.Count, now.Count) < 0.34;
                 sceneWas = now;
+            }
+            // With more than one display each has its own desktop, and clicking from one display to the other changes the
+            // active one with no swipe at all. So there she follows only when her own window has gone from view (a swipe on
+            // her display): two checks in a row, then again every few seconds if she is somehow still out of view.
+            if (space != 0 && sprite.Screens.All.Count > 1)
+            {
+                bool gone = sprite.IsVisible && !hidden && maskMode == null && !sprite.Showing();
+                outOfView = gone ? outOfView + 1 : 0;
+                swiped = outOfView % 20 == 2;
+                if (swiped && Environment.GetEnvironmentVariable("SOLIN_DEBUG_SPACES") == "1") Console.WriteLine("[space] " + DateTime.Now.ToString("HH:mm:ss.fff") + " out of view; active desktop " + space);
             }
             if (swiped && (DateTime.Now - lastSpaceHop).TotalSeconds > 0.6)
             {
@@ -867,8 +891,10 @@ namespace Solin.Companion
             if (selfAwayUntil.HasValue && now >= selfAwayUntil.Value) { selfAwayUntil = null; if (maskMode == "away") FromMask(); return; }
             if (selfMiniUntil.HasValue && now >= selfMiniUntil.Value) { selfMiniUntil = null; if (sprite.Mini) SetMini(false, self: true); return; }
             if (napUntil.HasValue && now >= napUntil.Value) { napUntil = null; if (sprite.Asleep) { sprite.Wake(); sfx.Play("soft"); } return; }
-            bool busy = hidden || maskMode != null || thinking || sprite.Asleep || bubble.IsVisible || card.IsVisible || emote.Running || possess.Running
-                || sky.Running || wake.IsVisible || grab.IsVisible || typer.IsVisible || (chat.IsVisible && chat.IsActive) || agentState == "working" || agentState == "needs_you";
+            // Testing one action: a Claude session at work (the one running the test, usually) does not hold her back.
+            bool forced = rush && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE_ONLY"));
+            bool busy = hidden || maskMode != null || thinking || sprite.Asleep || bubble.IsVisible || (card.IsVisible && !forced) || emote.Running || possess.Running
+                || sky.Running || wake.IsVisible || grab.IsVisible || typer.IsVisible || (chat.IsVisible && chat.IsActive) || (!forced && (agentState == "working" || agentState == "needs_you"));
             if (rush && busy) Console.WriteLine("[idle] busy");
             if (busy || (!rush && pick.NextDouble() > 0.45 + sprite.Wanderlust * 0.5)) return;
             int hour = now.Hour;
@@ -880,6 +906,7 @@ namespace Solin.Companion
                 (sprite.Seated ? 2.5 : 1.5, "possess", () => Possess()),
                 (2.0, "seat", () => { bool ok = sprite.TeleportToLedge(lie: pick.NextDouble() < 0.4); if (ok) sfx.Play("zap"); return ok; }),
                 (2.0, "hop", HopSomewhere),
+                (sprite.Screens.All.Count > 1 ? 2.6 : 0, "screens", HopScreens),
                 (mischief ? 2.0 : 0, "chain", HopChain),
                 (mischief ? 1.0 : 0, "tug", TugCursor),
                 (mischief ? 1.0 : 0, "infect", Infect),
@@ -894,7 +921,7 @@ namespace Solin.Companion
             if (rush && !string.IsNullOrEmpty(only)) options.RemoveAll(o => Array.IndexOf(only.Split(','), o.what) < 0);
             // Less of the same: what she did last is much less likely next, the one before that somewhat less, and another
             // teleport straight after a teleport less likely too. Still possible, just rarer.
-            string[] teleports = { "seat", "hop", "chain" };
+            string[] teleports = { "seat", "hop", "chain", "screens" };
             for (int i = 0; i < options.Count; i++)
             {
                 (double w, string what, Func<bool> act) = options[i];
@@ -1043,6 +1070,22 @@ namespace Solin.Companion
             Screen screen = sprite.Screens.ScreenFromPoint(sprite.ScreenCentre) ?? sprite.Screens.Primary;
             if (screen == null) return false;
             PixelRect area = screen.WorkingArea;
+            sfx.Play("zap");
+            sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + (int)(area.Width * (0.1 + pick.NextDouble() * 0.8)), area.Bottom)));
+            return true;
+        }
+
+        // A teleport onto another of your screens: its floor, or now and then the top of a window there.
+        private bool HopScreens()
+        {
+            Screen here = sprite.Screens.ScreenFromPoint(sprite.ScreenCentre) ?? sprite.Screens.Primary;
+            System.Collections.Generic.List<Screen> others = new System.Collections.Generic.List<Screen>();
+            foreach (Screen s in sprite.Screens.All) if (here == null || !s.Bounds.Equals(here.Bounds)) others.Add(s);
+            if (others.Count == 0) return false;
+            Screen to = others[pick.Next(others.Count)];
+            PixelRect area = to.WorkingArea;
+            if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SCREENS") == "1")
+                Console.WriteLine("[screens] from " + here?.Bounds + " to " + to.Bounds + " work " + area + " scaling " + to.Scaling + "; me at " + sprite.Position + " " + sprite.Width + "x" + sprite.Height + " render " + sprite.RenderScaling);
             sfx.Play("zap");
             sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + (int)(area.Width * (0.1 + pick.NextDouble() * 0.8)), area.Bottom)));
             return true;
