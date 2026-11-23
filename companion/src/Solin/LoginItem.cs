@@ -9,6 +9,9 @@ namespace Solin.Companion
     internal static class LoginItem
     {
         private const string Label = "com.seifueria.solin";
+        // The app's bundle identifier (mac/Info.plist). It moved off the label's name so macOS would make a fresh Screen
+        // Recording entry tied to her signing certificate, instead of an old one tied to a single build.
+        private const string BundleId = "com.seifueria.solin.companion";
         private static string PlistPath { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "LaunchAgents", Label + ".plist"); } }
 
         // The .app she is running from, or null when run from the terminal.
@@ -28,7 +31,7 @@ namespace Solin.Companion
         {
             string app = AppBundle;
             if (!OperatingSystem.IsMacOS() || app == null) return;
-            if (on == Enabled && (!on || File.ReadAllText(PlistPath).Contains(app))) return;
+            if (on == Enabled && (!on || (File.ReadAllText(PlistPath) is string text && text.Contains(app) && text.Contains(">" + BundleId + "<")))) return;
             if (!on) { try { File.Delete(PlistPath); } catch (Exception) { } return; }
             Directory.CreateDirectory(Path.GetDirectoryName(PlistPath));
             // "open -g" starts the app in the background at login, through LaunchServices, so it runs as Solin.app.
@@ -40,7 +43,7 @@ namespace Solin.Companion
   <key>ProgramArguments</key>
   <array><string>/usr/bin/open</string><string>-g</string><string>{System.Security.SecurityElement.Escape(app)}</string></array>
   <key>RunAtLoad</key><true/>
-  <key>AssociatedBundleIdentifiers</key><string>{Label}</string>
+  <key>AssociatedBundleIdentifiers</key><string>{BundleId}</string>
 </dict>
 </plist>
 ");
