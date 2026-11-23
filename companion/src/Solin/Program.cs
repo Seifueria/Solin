@@ -87,6 +87,8 @@ namespace Solin.Companion
         private bool mischief = true;
         private InfectWindow infect;
         private int hopsLeft;
+        // A screen hop asked for her terminal line on arrival (shown after the last hop of a chain).
+        private bool rootOnLanding;
         // Glancing at your screen now and then for something to say (on unless turned off): every few minutes while you are
         // at the Mac. The screenshot goes to her brain and is deleted straight after.
         private bool watchScreen = true, glanceRefused;
@@ -157,6 +159,9 @@ namespace Solin.Companion
                 typer = new Typer();
                 talkPill = new TalkPill();
                 infect = new InfectWindow();
+                // Debugging: each finished terminal kept as a picture, numbered.
+                string rootSnaps = Environment.GetEnvironmentVariable("SOLIN_DEBUG_SNAP");
+                if (!string.IsNullOrEmpty(rootSnaps)) { int snapped = 0; infect.Finished += () => Snap(infect, System.IO.Path.Combine(rootSnaps, "root-" + (++snapped) + ".png")); }
                 bubble = new Bubble();
                 pill = new Pill();
                 chat = new ChatWindow();
@@ -408,7 +413,15 @@ namespace Solin.Companion
                         else HopSomewhere();
                     }, TimeSpan.FromMilliseconds(140));
                 }
-                else sprite.TeleportSpeed = 1;
+                else
+                {
+                    sprite.TeleportSpeed = 1;
+                    if (rootOnLanding)
+                    {
+                        rootOnLanding = false;
+                        DispatcherTimer.RunOnce(() => { if (!bubble.IsVisible && !card.IsVisible && !hidden && maskMode == null) Infect(infect.HopScript(ScreenNumber())); }, TimeSpan.FromMilliseconds(450));
+                    }
+                }
             };
             skyTimer.Start();
             // Music: the player shows under her while something plays, and she sways along.
@@ -467,7 +480,7 @@ namespace Solin.Companion
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SKY") == "1")
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[sky] started " + Stargaze(asked: true)), TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") == "1") skyTimer.Interval = TimeSpan.FromSeconds(4);
-                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_GLANCE") == "1")
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_GLANCE") is "1" or "root")
                     DispatcherTimer.RunOnce(async () => { Console.WriteLine("[glance] looking; allowed " + ScreenShot.Allowed()); await Glance(now: true); Console.WriteLine("[glance] refused " + glanceRefused + " said: " + (bubble.IsVisible ? "yes" : "no") + " " + ScreenShot.LastError); }, TimeSpan.FromSeconds(6));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSE") == "1")
                 {
@@ -909,7 +922,7 @@ namespace Solin.Companion
                 (sprite.Screens.All.Count > 1 ? 2.6 : 0, "screens", HopScreens),
                 (mischief ? 2.0 : 0, "chain", HopChain),
                 (mischief ? 1.0 : 0, "tug", TugCursor),
-                (mischief ? 1.0 : 0, "infect", Infect),
+                (mischief ? 2.6 : 0, "infect", () => Infect()),
                 (mischief ? 2.4 : 0, "zapwin", ZapWindow),
                 (1.0, "eye", IdleEye),
                 (sprite.Seated ? 1.5 : 0, "lie", () => { if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); return true; }),
@@ -988,14 +1001,26 @@ namespace Solin.Companion
         }
 
         // Her joke infection: a little terminal beside her typing as if she were breaking in, and a glitch through her.
-        private bool Infect()
+        // lines: what it types; one of her scripts when null. On whichever side of her has more room on her screen.
+        private bool Infect(string[] lines = null)
         {
             if (infect.Running) return false;
             sfx.Play("buzz");
             sprite.Jitter(0.6);
-            bool right = sprite.ScreenCentre.X < (sprite.Screens.Primary?.WorkingArea.Center.X ?? 0);
-            infect.Run(new PixelPoint(sprite.ScreenCentre.X + (right ? Px(sprite.BodySize * 0.45) : -Px(sprite.BodySize * 0.45) - Px(320)), sprite.ScreenCentre.Y - Px(sprite.BodySize * 0.8)));
+            Screen screen = sprite.Screens.ScreenFromPoint(sprite.ScreenCentre) ?? sprite.Screens.Primary;
+            bool right = sprite.ScreenCentre.X < (screen?.WorkingArea.Center.X ?? 0);
+            int reach = Px(sprite.BodySize * 0.45);
+            infect.Run(new PixelPoint(sprite.ScreenCentre.X + (right ? reach : -reach), sprite.ScreenCentre.Y - Px(sprite.BodySize * 0.8)), right, screen, lines);
             return true;
+        }
+
+        // Which of your screens she is on, counting from 1, for her terminal lines.
+        private int ScreenNumber()
+        {
+            Screen here = sprite.Screens.ScreenFromPoint(sprite.ScreenCentre);
+            System.Collections.Generic.IReadOnlyList<Screen> all = sprite.Screens.All;
+            for (int i = 0; i < all.Count; i++) if (here != null && all[i].Bounds.Equals(here.Bounds)) return i + 1;
+            return 1;
         }
 
         // She points at some window and red lightning runs round it: hers now.
@@ -1055,7 +1080,10 @@ namespace Solin.Companion
                 if (got.HasValue && !string.IsNullOrWhiteSpace(got.Value.Visible) && !thinking && !bubble.IsVisible && !card.IsVisible)
                 {
                     BackendClient.Reply line = got.Value;
-                    bubble.Say(line.Visible, line.Mood);
+                    // With mischief on, now and then it is typed out in her terminal instead of said in the bubble.
+                    bool root = mischief && !infect.Running && (pick.NextDouble() < 0.35 || Environment.GetEnvironmentVariable("SOLIN_DEBUG_GLANCE") == "root");
+                    if (root) Infect(new[] { "> cat /dev/screen", TalkLook.Spoken(line.Visible).ToLowerInvariant() });
+                    else bubble.Say(line.Visible, line.Mood);
                     chat.AddHer(line.Visible, line.Mood, null);
                     if (line.Audio != null) _ = voice.Play(line.Audio);
                 }
@@ -1088,6 +1116,8 @@ namespace Solin.Companion
                 Console.WriteLine("[screens] from " + here?.Bounds + " to " + to.Bounds + " work " + area + " scaling " + to.Scaling + "; me at " + sprite.Position + " " + sprite.Width + "x" + sprite.Height + " render " + sprite.RenderScaling);
             sfx.Play("zap");
             sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + (int)(area.Width * (0.1 + pick.NextDouble() * 0.8)), area.Bottom)));
+            // Now and then she announces it in her terminal once she is there.
+            if (mischief && pick.NextDouble() < 0.4) rootOnLanding = true;
             return true;
         }
 
