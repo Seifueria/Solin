@@ -71,9 +71,11 @@ namespace Solin.Companion
 
         // cutInArt: a still for the cut-in panel; null shows her live face as before. avoid: text boxes on screen (card, bubble,
         // pill) in screen pixels; the panel goes in the first spot beside her that keeps clear of them.
-        internal void Burst(PixelPoint centre, double size, Avalonia.Media.Imaging.Bitmap cutInArt = null, bool rays = true, System.Collections.Generic.IEnumerable<PixelRect> avoid = null)
+        internal void Burst(PixelPoint centre, double size, Avalonia.Media.Imaging.Bitmap cutInArt = null, bool rays = true, System.Collections.Generic.IEnumerable<PixelRect> avoid = null, bool panel = true)
         {
             Point at = Cover(centre);
+            // No panel: just the rays (the big face panel is off for now, Kaelen's call).
+            if (!panel) { if (rays) canvas.Burst(at, size); return; }
             Screen screen = Screens.ScreenFromPoint(centre) ?? Screens.Primary;
             double scale = screen?.Scaling ?? 1;
             if (cutInArt != null)

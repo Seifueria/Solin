@@ -295,9 +295,9 @@ def greet():
     sid, current = session(data.get("session_id"))
     now = datetime.now()
     part = "morning" if now.hour < 12 else "afternoon" if now.hour < 18 else "evening" if now.hour < 23 else "late night"
-    context = bond.prompt_lines() + f"\nIt's {now.strftime('%A')} {part}, {now.strftime('%-I:%M %p').lower()}. They just started you up. Greet them in one short line, in your voice; no questions about tasks."
+    context = bond.prompt_lines() + f"\nIt's {now.strftime('%A')} {part}, {now.strftime('%-I:%M %p').lower()}. They just started you up. Greet them in one short line of under twelve words, in your voice; no questions about tasks, no emoji."
     try:
-        visible, internal, mood = brain.reply("(you just came online)", context)
+        visible, internal, mood = brain.reply("(you just came online)", context, sentences=1)
     except Exception as failure:  # noqa: BLE001
         print(f"[companion_api] greet failed: {failure}", file=sys.stderr)
         return jsonify({"visible": None})

@@ -30,6 +30,10 @@ namespace Solin.Companion
         private readonly BackendLauncher launcher = new BackendLauncher();
         private SpriteWindow sprite;
         private Typer typer;
+        private TalkPill talkPill;
+        // Her voice on or off, as the wave on the pill shows it; read from her settings when the backend is up.
+        private bool voiceOn;
+        private readonly DispatcherTimer pillAway = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.4) };
         private Bubble bubble;
         private Pill pill;
         private ChatWindow chat;
@@ -111,8 +115,7 @@ namespace Solin.Companion
         };
         private static readonly string[] BreakLines =
         {
-            "[calm] you've been at it two hours straight. stretch, drink some water. i'll be here.",
-            "[soft] two hours without a break. go stand up for a minute, yeah?",
+            "[calm] two hours straight. stretch.", "[soft] go stand up a minute.",
         };
         private readonly Random pick = new Random();
         private string agentState = "idle";
@@ -137,6 +140,7 @@ namespace Solin.Companion
                 sprite.Layers.Children.Insert(0, trail);
                 sprite.Layers.Children.Add(fx);
                 typer = new Typer();
+                talkPill = new TalkPill();
                 bubble = new Bubble();
                 pill = new Pill();
                 chat = new ChatWindow();
@@ -234,7 +238,7 @@ namespace Solin.Companion
                 if (sprite.QuietLanding) { sprite.QuietLanding = false; sprite.Jitter(0.7); return; }
                 sprite.Jitter(0.25);
                 flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
-                if (agentState == "done") flourish.Burst(sprite.ScreenCentre, sprite.BodySize, ArtLibrary.CutIn(pick.NextDouble() < 0.5 ? "grin" : "laugh"), avoid: TextRects());
+                if (agentState == "done") flourish.Burst(sprite.ScreenCentre, sprite.BodySize, panel: false);
             };
             voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => { voiceTalking = on; Mouth(on); }); };
             bubble.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
@@ -265,6 +269,30 @@ namespace Solin.Companion
             card.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             card.Still = () => ArtLibrary.Face(agentState == "done" ? "warm" : agentState == "needs_you" ? "curious" : agentState == "error" ? "annoyed" : mood.Mood);
             typer.Sent += delegate(string text) { chat.AddYou(text); _ = Ask(text); };
+            // Over her head: over her reply when one is up, else just over her.
+            typer.Follow(() => bubble.IsVisible ? new PixelPoint(bubble.Top.X, bubble.Top.Y - Px(6)) : new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
+            // The pencil and wave under her while you hover her (or it), and while the typing box is open.
+            talkPill.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.ScreenCentre.Y + Px(sprite.BodySize * 0.52)));
+            talkPill.TypeClicked += delegate { OpenTyper(); };
+            talkPill.VoiceClicked += delegate
+            {
+                voiceOn = !voiceOn;
+                talkPill.Muted = !voiceOn;
+                sfx.Play(voiceOn ? "blip" : "tick");
+                pill.Say(voiceOn ? "voice on" : "voice off", 2, "SOLIN");
+                _ = backend.SaveSettings(new { voice = new { speak = voiceOn } });
+            };
+            sprite.PointerEntered += delegate { if (!hidden && maskMode == null) { pillAway.Stop(); talkPill.Pop(); } };
+            sprite.PointerExited += delegate { pillAway.Start(); };
+            talkPill.PointerEntered += delegate { pillAway.Stop(); };
+            talkPill.PointerExited += delegate { pillAway.Start(); };
+            pillAway.Tick += delegate
+            {
+                talkPill.Typing = typer.IsVisible;
+                if (typer.IsVisible || talkPill.Hovered) return;
+                pillAway.Stop();
+                talkPill.Hide();
+            };
             chat.Sent += delegate(string text) { _ = Ask(text); };
             settings.Applied += async delegate(object body)
             {
@@ -429,7 +457,16 @@ namespace Solin.Companion
                     talkProbe.Tick += delegate { Console.WriteLine("[talk] bubble " + bubbleTalking + " voice " + voiceTalking + " mouth " + sprite.Talking + " pill " + pill.IsVisible + " card " + card.IsVisible); };
                     talkProbe.Start();
                     DispatcherTimer.RunOnce(OpenTyper, TimeSpan.FromSeconds(4));
-                    DispatcherTimer.RunOnce(() => { Console.WriteLine("[typer] " + Spaces.Describe(typer) + " at " + typer.Position); typer.Hide(); }, TimeSpan.FromSeconds(5));
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[typer] " + Spaces.Describe(typer) + " at " + typer.Position), TimeSpan.FromSeconds(5));
+                    // A reply to a line of yours, and the pill, then pictures of each for checking the look.
+                    DispatcherTimer.RunOnce(() => { bubble.Say("[teasing] ola. took you long enough to type something 😌", "teasing", "ola"); talkPill.Pop(); }, TimeSpan.FromSeconds(5.5));
+                    string snaps = Environment.GetEnvironmentVariable("SOLIN_DEBUG_SNAP");
+                    if (!string.IsNullOrEmpty(snaps))
+                        DispatcherTimer.RunOnce(() =>
+                        {
+                            foreach ((Window w, string name) in new (Window, string)[] { (bubble, "bubble"), (typer, "typer"), (talkPill, "pill"), (sprite, "sprite") }) Snap(w, System.IO.Path.Combine(snaps, name + ".png"));
+                            Console.WriteLine("[snap] typer at " + typer.Position + " bubble at " + bubble.Position + " pill at " + talkPill.Position + " sprite at " + sprite.Position + " clip " + sprite.ShownClip?.Title);
+                        }, TimeSpan.FromSeconds(9));
                 }
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_ROAM") == "1")
                 {
@@ -447,7 +484,11 @@ namespace Solin.Companion
                     chat.Load(await backend.History());
                     chat.SetBrain(await backend.BrainName());
                     using (System.Text.Json.JsonDocument doc = await backend.Settings())
+                    {
                         if (doc != null && doc.RootElement.TryGetProperty("companion", out System.Text.Json.JsonElement c)) ApplyCompanion(c);
+                        voiceOn = doc != null && doc.RootElement.TryGetProperty("voice", out System.Text.Json.JsonElement vo) && vo.TryGetProperty("speak", out System.Text.Json.JsonElement sp) && sp.ValueKind == System.Text.Json.JsonValueKind.True;
+                        talkPill.Muted = !voiceOn;
+                    }
                     using (System.Text.Json.JsonDocument doc2 = await backend.Settings())
                         if (doc2 != null && doc2.RootElement.TryGetProperty("companion", out System.Text.Json.JsonElement c2) && !(c2.TryGetProperty("toured", out System.Text.Json.JsonElement t) && t.ValueKind == System.Text.Json.JsonValueKind.True))
                             DispatcherTimer.RunOnce(StartTour, TimeSpan.FromSeconds(4.5));
@@ -606,7 +647,7 @@ namespace Solin.Companion
         {
             lastFront = DateTime.Now;
             if (hidden) return;
-            foreach (Window w in new Window[] { sprite, emote, mask, player, wake, grab, possess, sky, flourish, frameFx, pointer, chat, settings, card, bubble, pill, typer })
+            foreach (Window w in new Window[] { sprite, emote, mask, player, wake, grab, possess, sky, flourish, frameFx, pointer, talkPill, chat, settings, card, bubble, pill, typer })
             {
                 if (w == null) continue;
                 Spaces.Reassert(w);
@@ -864,7 +905,9 @@ namespace Solin.Companion
         // The typing box under her feet, centred.
         private void OpenTyper()
         {
-            typer.Open(new PixelPoint(sprite.Position.X + Px(sprite.Width / 2) - Px(175), sprite.Position.Y + Px(sprite.Height) - Px(30)));
+            typer.Open();
+            talkPill.Typing = true;
+            pillAway.Start();
         }
 
         private async void OpenSettings()
@@ -1033,9 +1076,6 @@ namespace Solin.Companion
                     if (fresh)
                     {
                         card.Show(agentProject, "WAITING", Card.Red, Pick(WaitLines), detail);
-                        // A flash of her eyes beside her once she has landed by your cursor.
-                        Avalonia.Media.Imaging.Bitmap eyes = ArtLibrary.CutIn("eyes");
-                        if (eyes != null) DispatcherTimer.RunOnce(() => flourish.Burst(sprite.ScreenCentre, sprite.BodySize, eyes, rays: false, avoid: TextRects()), TimeSpan.FromSeconds(1.4));
                         PixelRect? home = sprite.WindowOf(ClaudeHomes);
                         if (home.HasValue) DispatcherTimer.RunOnce(() => { if (agentState == "needs_you") pointer.Point(() => sprite.HandScreen, () => sprite.WindowOf(ClaudeHomes)); }, TimeSpan.FromSeconds(1.3));
                         // Beside Claude's window, level with your cursor, so she can point at it; next to the cursor if there's no room.
@@ -1101,6 +1141,21 @@ namespace Solin.Companion
             }
         }
 
+        // Debugging: a window's content drawn to a PNG at 2x, to check a look without a screenshot.
+        private static void Snap(Window w, string path)
+        {
+            try
+            {
+                if (!(w.Content is Control c) || c.Bounds.Width < 1) { Console.WriteLine("[snap] nothing in " + path); return; }
+                using (Avalonia.Media.Imaging.RenderTargetBitmap bmp = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize((int)(c.Bounds.Width * 2), (int)(c.Bounds.Height * 2)), new Vector(192, 192)))
+                {
+                    bmp.Render(c);
+                    bmp.Save(path);
+                }
+            }
+            catch (Exception e) { Console.WriteLine("[snap] " + path + ": " + e.Message); }
+        }
+
         // The text boxes on screen now, in screen pixels, for effects to keep clear of.
         private System.Collections.Generic.List<PixelRect> TextRects()
         {
@@ -1153,7 +1208,7 @@ namespace Solin.Companion
                 chat.Thinking(false);
                 mood.Set(reply.Mood, mood.Trust);
                 chat.AddHer(reply.Visible, reply.Mood, reply.Internal);
-                bubble.Say(reply.Visible, reply.Mood);
+                bubble.Say(reply.Visible, reply.Mood, text);
                 string visible = reply.Visible, replyMood = reply.Mood, audio = reply.Audio;
                 if (replyMood == "warm" || replyMood == "teasing") sprite.Grin();
                 if (audio != null) _ = voice.Play(audio);
