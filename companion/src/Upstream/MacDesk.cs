@@ -120,6 +120,26 @@ namespace Solin.Companion.Upstream
             return null;
         }
 
+        // Whether one of this app's own windows is drawn on a screen now: on a desktop that is showing. Solin's addition.
+        internal bool Showing(long window)
+        {
+            IntPtr array = CGWindowListCopyWindowInfo(IncludingWindow, (uint)window);
+            if (array == IntPtr.Zero) return true;
+            try
+            {
+                long count = CFArrayGetCount(array);
+                for (long i = 0; i < count; i++)
+                {
+                    IntPtr info = CFArrayGetValueAtIndex(array, i);
+                    if (Whole(info, number) != window) continue;
+                    IntPtr shown = CFDictionaryGetValue(info, onscreen);
+                    return shown != IntPtr.Zero && CFBooleanGetValue(shown);
+                }
+            }
+            finally { CFRelease(array); }
+            return false;
+        }
+
         private List<Spot> List(uint option, uint relative, bool showing)
         {
             List<Spot> found = new List<Spot>();
