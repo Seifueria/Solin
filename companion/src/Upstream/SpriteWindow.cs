@@ -333,6 +333,16 @@ namespace Solin.Companion.Upstream
         private double glitchUntil = -1;
         internal void Jitter(double seconds) { glitchUntil = Now + seconds; }
         // The numbers of every other window on screen right now; a wholesale change means the Space switched under her.
+        // Other apps' windows on screen, front to back, in screen pixels. For her mischief.
+        internal System.Collections.Generic.List<PixelRect> OtherWindows()
+        {
+            System.Collections.Generic.List<PixelRect> list = new System.Collections.Generic.List<PixelRect>();
+            if (desk == null) return list;
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            foreach (Spot spot in desk.Windows()) list.Add(spot.Bounds);
+            return list;
+        }
+
         internal System.Collections.Generic.HashSet<long> WindowIds()
         {
             System.Collections.Generic.HashSet<long> ids = new System.Collections.Generic.HashSet<long>();
@@ -448,6 +458,8 @@ namespace Solin.Companion.Upstream
         // Arriving from nowhere (a swipe to another desktop): she is put at target already gone, then reassembles over the
         // glitch the way a teleport lands. quiet: no beam on landing (Solin skips it), just the glitch. Solin's addition.
         internal bool QuietLanding;
+        // How fast a teleport's glitch plays: above 1 for quick hops in a chain. Solin sets it.
+        internal double TeleportSpeed = 1;
         internal void TeleportIn(PixelPoint target, bool quiet)
         {
             pendingSeat = null;
@@ -740,7 +752,7 @@ namespace Solin.Companion.Upstream
                 if (random.NextDouble() < Wanderlust) Wander(now);
             }
             if (danceUntil >= 0 && (now >= danceUntil || pressed || flying)) { danceUntil = -1; if (clip == dance) Play(seat != null ? perch : idle); }
-            int index = (int)((now - clipStart) * clip.Fps);
+            int index = (int)((now - clipStart) * clip.Fps * (clip == glitch ? TeleportSpeed : 1));
             if (clip == perchGlitch && index >= perchGlitch.Count) { Play(perch); index = 0; }
             if (clip == grin && index >= grin.Count * 2) { Play(idle); index = 0; }
             if (clip == glitch && index >= glitch.Count && !teleportTo.HasValue) { Play(seat != null ? perch : idle); index = 0; }
@@ -851,7 +863,7 @@ namespace Solin.Companion.Upstream
                 return;
             }
             // Out: she dissolves over the glitch. In: she reassembles over it.
-            double progress = clip == glitch ? Math.Clamp((now - clipStart) * glitch.Fps / glitch.Count, 0, 1) : 0;
+            double progress = clip == glitch ? Math.Clamp((now - clipStart) * glitch.Fps * TeleportSpeed / glitch.Count, 0, 1) : 0;
             body.Dissolve = clip != glitch ? 0 : teleportLanding ? 1 - progress : progress;
             if (arriveAt == double.MaxValue) body.Dissolve = 1;
             else if (arriveAt >= 0)

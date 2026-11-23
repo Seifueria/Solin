@@ -80,6 +80,17 @@ namespace Solin.Companion
         private readonly DispatcherTimer skyTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         // Spells she starts herself and ends herself: a nap, being put away, a stretch in mini form.
         private DateTime? napUntil, selfAwayUntil, selfMiniUntil;
+        // Mischief (on unless turned off in settings): teleport chains, tugging your cursor, a fake "infection" terminal,
+        // lightning round a window. Nothing that changes anything on the Mac.
+        private bool mischief = true;
+        private InfectWindow infect;
+        private int hopsLeft;
+        // Glancing at your screen now and then for something to say (on unless turned off): every few minutes while you are
+        // at the Mac. The screenshot goes to her brain and is deleted straight after.
+        private bool watchScreen = true, glanceRefused;
+        private double watchEvery = 5;
+        private DateTime nextGlance = DateTime.Now.AddMinutes(2);
+        private readonly DispatcherTimer glanceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
         // Which windows were on screen last look; a wholesale change means you swiped to another Space and she came along.
         private System.Collections.Generic.HashSet<long> sceneWas = new System.Collections.Generic.HashSet<long>();
         private readonly DispatcherTimer scene = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
@@ -141,6 +152,7 @@ namespace Solin.Companion
                 sprite.Layers.Children.Add(fx);
                 typer = new Typer();
                 talkPill = new TalkPill();
+                infect = new InfectWindow();
                 bubble = new Bubble();
                 pill = new Pill();
                 chat = new ChatWindow();
@@ -372,6 +384,14 @@ namespace Solin.Companion
             sprite.Landed += delegate { if (possessPending) { possessPending = false; if (sprite.Seated) DispatcherTimer.RunOnce(BeginPossession, TimeSpan.FromMilliseconds(400)); } };
             // Now and then, when nothing is going on, she looks up at the sky; more often at night.
             skyTimer.Tick += delegate { IdleTurn(); };
+            glanceTimer.Tick += async delegate { await Glance(); };
+            glanceTimer.Start();
+            // A chain of quick hops: the next one as soon as she lands, until it runs out.
+            sprite.Landed += delegate
+            {
+                if (hopsLeft > 0) { hopsLeft--; DispatcherTimer.RunOnce(() => { if (pick.NextDouble() < 0.45 && sprite.TeleportToLedge(lie: false)) sfx.Play("zap"); else HopSomewhere(); }, TimeSpan.FromMilliseconds(140)); }
+                else sprite.TeleportSpeed = 1;
+            };
             skyTimer.Start();
             // Music: the player shows under her while something plays, and she sways along.
             player.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height) - Px(16)));
@@ -429,6 +449,8 @@ namespace Solin.Companion
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SKY") == "1")
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[sky] started " + Stargaze(asked: true)), TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") == "1") skyTimer.Interval = TimeSpan.FromSeconds(4);
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_GLANCE") == "1")
+                    DispatcherTimer.RunOnce(async () => { Console.WriteLine("[glance] looking"); await Glance(now: true); Console.WriteLine("[glance] refused " + glanceRefused + " said: " + (bubble.IsVisible ? "yes" : "no") + " " + ScreenShot.LastError); }, TimeSpan.FromSeconds(6));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSE") == "1")
                 {
                     DispatcherTimer poseProbe = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -647,7 +669,7 @@ namespace Solin.Companion
         {
             lastFront = DateTime.Now;
             if (hidden) return;
-            foreach (Window w in new Window[] { sprite, emote, mask, player, wake, grab, possess, sky, flourish, frameFx, pointer, talkPill, chat, settings, card, bubble, pill, typer })
+            foreach (Window w in new Window[] { sprite, emote, mask, player, wake, grab, possess, sky, flourish, frameFx, pointer, infect, talkPill, chat, settings, card, bubble, pill, typer })
             {
                 if (w == null) continue;
                 Spaces.Reassert(w);
@@ -841,7 +863,7 @@ namespace Solin.Companion
             bool busy = hidden || maskMode != null || thinking || sprite.Asleep || bubble.IsVisible || card.IsVisible || emote.Running || possess.Running
                 || sky.Running || wake.IsVisible || grab.IsVisible || typer.IsVisible || (chat.IsVisible && chat.IsActive) || agentState == "working" || agentState == "needs_you";
             if (rush && busy) Console.WriteLine("[idle] busy");
-            if (busy || (!rush && pick.NextDouble() > 0.3 + sprite.Wanderlust * 0.6)) return;
+            if (busy || (!rush && pick.NextDouble() > 0.45 + sprite.Wanderlust * 0.5)) return;
             int hour = now.Hour;
             bool night = hour >= 20 || hour < 6;
             System.Collections.Generic.List<(double weight, string what, Func<bool> act)> options = new System.Collections.Generic.List<(double, string, Func<bool>)>
@@ -850,12 +872,16 @@ namespace Solin.Companion
                 (2.0, "emote", () => PlayEmote(!sprite.Seated && !sprite.Floating && pick.NextDouble() < 0.6 ? "chair" : "heart")),
                 (sprite.Seated ? 2.5 : 1.5, "possess", () => Possess()),
                 (2.0, "seat", () => { bool ok = sprite.TeleportToLedge(lie: pick.NextDouble() < 0.4); if (ok) sfx.Play("zap"); return ok; }),
-                (1.2, "hop", HopSomewhere),
+                (2.0, "hop", HopSomewhere),
+                (mischief ? 2.0 : 0, "chain", HopChain),
+                (mischief ? 1.0 : 0, "tug", TugCursor),
+                (mischief ? 1.0 : 0, "infect", Infect),
+                (mischief ? 1.0 : 0, "zapwin", ZapWindow),
                 (1.0, "eye", IdleEye),
                 (sprite.Seated ? 1.5 : 0, "lie", () => { if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); return true; }),
                 (0.8, "nap", () => { sprite.Sleep(); napUntil = now.AddSeconds(60 + pick.NextDouble() * 120); return sprite.Asleep; }),
                 (0.5, "away", () => { ToMask("away"); selfAwayUntil = now.AddSeconds(60 + pick.NextDouble() * 90); return true; }),
-                (sprite.Mini ? 0 : 0.5, "mini", () => { SetMini(true, self: true); selfMiniUntil = now.AddMinutes(2 + pick.NextDouble() * 3); return true; }),
+                (sprite.Mini ? 0 : 1.4, "mini", () => { SetMini(true, self: true); selfMiniUntil = now.AddMinutes(2 + pick.NextDouble() * 4); return true; }),
             };
             string only = Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE_ONLY");
             if (rush && !string.IsNullOrEmpty(only)) options.RemoveAll(o => Array.IndexOf(only.Split(','), o.what) < 0);
@@ -873,6 +899,107 @@ namespace Solin.Companion
                 if (done) return;
                 options.RemoveAt(chosen);
             }
+        }
+
+        // Two to four quick hops in a row, here and there: a virus loose on the screen.
+        private bool HopChain()
+        {
+            hopsLeft = 1 + pick.Next(3);
+            sprite.TeleportSpeed = 2.2;
+            return HopSomewhere();
+        }
+
+        // She grabs your cursor and pulls it a little way toward her, then lets go. Only while you have paused (not mid-drag,
+        // not typing), and she lets go the moment you move it yourself.
+        private bool TugCursor()
+        {
+            double? idle = Mouse.IdleSeconds();
+            if (!idle.HasValue || idle.Value < 1.5 || idle.Value > 90 || Mouse.ButtonDown() || typer.IsVisible || chat.IsActive) return false;
+            double scale = sprite.Screens.Primary?.Scaling ?? 1;
+            PixelPoint? start = Mouse.Position(scale);
+            if (!start.HasValue) return false;
+            PixelPoint hand = sprite.HandScreen;
+            double dx = hand.X - start.Value.X, dy = hand.Y - start.Value.Y, dist = Math.Sqrt(dx * dx + dy * dy);
+            if (dist < Px(80)) return false;
+            double pull = Math.Min(Px(220), dist * 0.4) / dist;
+            PixelPoint from = start.Value, to = new PixelPoint(from.X + (int)(dx * pull), from.Y + (int)(dy * pull));
+            sfx.Play("zap");
+            pointer.Point(() => sprite.HandScreen, () => { PixelPoint? c = Mouse.Position(scale); return c.HasValue ? new PixelRect(c.Value.X - Px(12), c.Value.Y - Px(12), Px(24), Px(24)) : (PixelRect?)null; }, true, "MINE");
+            int step = 0;
+            PixelPoint expected = from;
+            DispatcherTimer tug = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
+            tug.Tick += delegate
+            {
+                PixelPoint? now = Mouse.Position(scale);
+                bool yours = !now.HasValue || Math.Abs(now.Value.X - expected.X) > Px(6) || Math.Abs(now.Value.Y - expected.Y) > Px(6) || Mouse.ButtonDown();
+                step++;
+                if (yours || step > 14) { tug.Stop(); DispatcherTimer.RunOnce(() => pointer.Stop(), TimeSpan.FromMilliseconds(350)); if (!yours) sprite.React("dip"); return; }
+                double k = 1 - Math.Pow(1 - step / 14.0, 3);
+                expected = new PixelPoint(from.X + (int)((to.X - from.X) * k), from.Y + (int)((to.Y - from.Y) * k));
+                Mouse.Warp(expected, scale);
+            };
+            DispatcherTimer.RunOnce(() => tug.Start(), TimeSpan.FromMilliseconds(500));
+            return true;
+        }
+
+        // Her joke infection: a little terminal beside her typing as if she were breaking in, and a glitch through her.
+        private bool Infect()
+        {
+            if (infect.Running) return false;
+            sfx.Play("buzz");
+            sprite.Jitter(0.6);
+            bool right = sprite.ScreenCentre.X < (sprite.Screens.Primary?.WorkingArea.Center.X ?? 0);
+            infect.Run(new PixelPoint(sprite.ScreenCentre.X + (right ? Px(sprite.BodySize * 0.45) : -Px(sprite.BodySize * 0.45) - Px(320)), sprite.ScreenCentre.Y - Px(sprite.BodySize * 0.8)));
+            return true;
+        }
+
+        // She points at some window and red lightning runs round it: hers now.
+        private bool ZapWindow()
+        {
+            System.Collections.Generic.List<PixelRect> windows = sprite.OtherWindows();
+            if (windows.Count == 0) return false;
+            PixelRect target = windows[pick.Next(Math.Min(3, windows.Count))];
+            sfx.Play("zap");
+            frameFx.Race(target);
+            pointer.Point(() => sprite.HandScreen, () => target, true, "INFECTED");
+            DispatcherTimer.RunOnce(() => pointer.Stop(), TimeSpan.FromSeconds(2.2));
+            return true;
+        }
+
+        // Now and then, while you are at the Mac and she is free, a look at your screen and one short line about it.
+        private async Task Glance(bool now = false)
+        {
+            if (!now && (!watchScreen || glanceRefused || DateTime.Now < nextGlance)) return;
+            double? idle = Mouse.IdleSeconds();
+            bool busy = hidden || maskMode != null || thinking || sprite.Asleep || bubble.IsVisible || card.IsVisible || typer.IsVisible || agentState == "needs_you";
+            if (!now && (busy || !idle.HasValue || idle.Value > 45)) return;
+            nextGlance = DateTime.Now.AddMinutes(watchEvery * (0.7 + pick.NextDouble() * 0.6));
+            string shot = await ScreenShot.Capture();
+            if (shot == null)
+            {
+                // No Screen Recording permission: say so once, then stop trying until she is restarted.
+                glanceRefused = true;
+                if (!lookPermissionAsked)
+                {
+                    lookPermissionAsked = true;
+                    card.Show("mac", "PERMISSION", Card.Red, "I can't see your screen yet.", "Turn Solin on in System Settings › Privacy & Security › Screen Recording, then quit and reopen me.", null, "OPEN SETTINGS", 30);
+                }
+                return;
+            }
+            try
+            {
+                sprite.Flourish("look");
+                BackendClient.Reply? got = await backend.Remark(shot);
+                if (got.HasValue && !string.IsNullOrWhiteSpace(got.Value.Visible) && !thinking && !bubble.IsVisible && !card.IsVisible)
+                {
+                    BackendClient.Reply line = got.Value;
+                    bubble.Say(line.Visible, line.Mood);
+                    chat.AddHer(line.Visible, line.Mood, null);
+                    if (line.Audio != null) _ = voice.Play(line.Audio);
+                }
+            }
+            catch (Exception) { }
+            finally { ScreenShot.Forget(shot); }
         }
 
         // A teleport to somewhere on the floor of her screen.
@@ -922,6 +1049,9 @@ namespace Solin.Companion
         {
             if (c.TryGetProperty("sounds", out System.Text.Json.JsonElement so)) sfx.Level = so.GetDouble();
             if (c.TryGetProperty("wander", out System.Text.Json.JsonElement wa)) sprite.Wanderlust = wa.GetDouble();
+            if (c.TryGetProperty("mischief", out System.Text.Json.JsonElement mi)) mischief = mi.ValueKind != System.Text.Json.JsonValueKind.False;
+            if (c.TryGetProperty("watch_screen", out System.Text.Json.JsonElement ws)) watchScreen = ws.ValueKind != System.Text.Json.JsonValueKind.False;
+            if (c.TryGetProperty("watch_every_min", out System.Text.Json.JsonElement we) && we.ValueKind == System.Text.Json.JsonValueKind.Number) watchEvery = Math.Max(1, we.GetDouble());
             if (c.TryGetProperty("sleep_after_min", out System.Text.Json.JsonElement sl)) SleepAfter = sl.GetDouble() * 60;
             if (c.TryGetProperty("break_after_min", out System.Text.Json.JsonElement br)) BreakAfter = br.GetDouble() * 60;
             if (c.TryGetProperty("size", out System.Text.Json.JsonElement sz)) sprite.Resize(sz.GetString() == "mini" ? SpriteWindow.MiniSize : SpriteWindow.FullSize);

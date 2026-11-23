@@ -133,8 +133,8 @@ namespace Solin.Companion
         private readonly List<Bar> bars = new List<Bar>();
         private struct Ray { public Point From; public double Angle, Inner, Outer, Width, Born, Life; public Color Tint; }
         private readonly List<Ray> rays = new List<Ray>();
-        private Point beamAt; private double beamBorn = -10;
-        private const double BeamLife = 0.5;
+        private Point beamAt; private double beamBorn = -10, beamSize = 240;
+        private const double BeamLife = 0.32;
 
         private double Now { get { return clock.Elapsed.TotalSeconds; } }
         private double Diagonal { get { return Math.Sqrt(Area.Width * Area.Width + Area.Height * Area.Height); } }
@@ -162,7 +162,7 @@ namespace Solin.Companion
         }
 
         // Her arriving: a beam from the top of the screen to the bottom, white-hot and wide, thinning to a red thread.
-        internal void Beam(Point centre, double size) { beamAt = centre; beamBorn = Now; InvalidateVisual(); }
+        internal void Beam(Point centre, double size) { beamAt = centre; beamSize = size; beamBorn = Now; InvalidateVisual(); }
 
         // A job done: speed lines from around her out past the screen's edges.
         internal void Burst(Point centre, double size)
@@ -238,11 +238,14 @@ namespace Solin.Companion
             double beamAge = (now - beamBorn) / BeamLife;
             if (beamAge >= 0 && beamAge < 1)
             {
-                // Full height of the screen at her x. Wide and white first, then a thin red thread with a jagged edge, then gone.
+                // A short column through her, not the whole screen (Kaelen's call: smaller). White first, then a thin red thread
+                // with a jagged edge, then gone.
                 double ease = 1 - Math.Pow(1 - beamAge, 2);
-                double core = Math.Max(2, Area.Width * 0.022 * (1 - ease));
-                double edge = core + 10 + 14 * (1 - ease);
+                double core = Math.Max(1.5, Area.Width * 0.007 * (1 - ease));
+                double edge = core + 5 + 7 * (1 - ease);
                 double x = beamAt.X;
+                double top = Math.Max(0, beamAt.Y - beamSize * 1.3), bottom = Math.Min(Area.Height, beamAt.Y + beamSize * 0.55);
+                using IDisposable column = context.PushClip(new Rect(0, top, Area.Width, bottom - top));
                 StreamGeometry jag = new StreamGeometry();
                 using (StreamGeometryContext c = jag.Open())
                 {
