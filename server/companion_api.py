@@ -205,6 +205,8 @@ def chat():
     image = data.get("image")
     if image and not (isinstance(image, str) and os.path.isfile(image) and image.lower().endswith((".jpg", ".jpeg", ".png"))):
         image = None
+    if image:
+        context += screens_line(data)
     reminder = reminders.parse(text)
     if reminder:
         due, what = reminder
@@ -385,6 +387,15 @@ def say():
     return jsonify({"visible": text, "mood": s["mood"], "audio": audio})
 
 
+def screens_line(data):
+    """A line for her brain when the screenshot holds several screens side by side."""
+    try:
+        screens = int(data.get("screens") or 1)
+    except (TypeError, ValueError):
+        screens = 1
+    return f"\nThe screenshot shows all {screens} of their screens side by side, left to right." if screens > 1 else ""
+
+
 # What she said glancing at the screen lately, so chat can follow on from it for a while. Not kept in her memory.
 recent_remarks = []
 
@@ -398,8 +409,9 @@ def remark():
     if not (isinstance(image, str) and os.path.isfile(image) and image.lower().endswith((".jpg", ".jpeg", ".png"))):
         return jsonify({"error": "image required"}), 400
     sid, current = session(data.get("session_id"))
+    context = bond.prompt_lines() + screens_line(data)
     try:
-        visible, mood = brain.remark(image, bond.prompt_lines())
+        visible, mood = brain.remark(image, context)
     except Exception as failure:  # noqa: BLE001
         print(f"[companion_api] remark failed: {failure}", file=sys.stderr)
         return jsonify({"visible": None})

@@ -979,7 +979,7 @@ namespace Solin.Companion
             bool busy = hidden || maskMode != null || thinking || sprite.Asleep || bubble.IsVisible || card.IsVisible || typer.IsVisible || agentState == "needs_you";
             if (!now && (busy || !idle.HasValue || idle.Value > 45)) return;
             nextGlance = DateTime.Now.AddMinutes(watchEvery * (0.7 + pick.NextDouble() * 0.6));
-            string shot = await ScreenShot.Capture();
+            string shot = await ScreenShot.Capture(sprite.Screens.All.Count);
             if (shot == null)
             {
                 // No Screen Recording permission: ask macOS in her own name (its prompt, and her entry in the list), say so
@@ -995,8 +995,11 @@ namespace Solin.Companion
             }
             try
             {
+                // Debugging: keep a copy of what she saw, and say how many screens it holds.
+                string keep = Environment.GetEnvironmentVariable("SOLIN_DEBUG_KEEP_SHOT");
+                if (!string.IsNullOrEmpty(keep)) { System.IO.File.Copy(shot, keep, true); Console.WriteLine("[glance] screens " + ScreenShot.LastScreens + " " + ScreenShot.LastError); }
                 sprite.Flourish("look");
-                BackendClient.Reply? got = await backend.Remark(shot);
+                BackendClient.Reply? got = await backend.Remark(shot, ScreenShot.LastScreens);
                 if (got.HasValue && !string.IsNullOrWhiteSpace(got.Value.Visible) && !thinking && !bubble.IsVisible && !card.IsVisible)
                 {
                     BackendClient.Reply line = got.Value;
@@ -1327,7 +1330,7 @@ namespace Solin.Companion
                 if (look || LookAsk.IsMatch(text))
                 {
                     pill.Say("looking at your screen…", 0, "SOLIN");
-                    shot = await ScreenShot.Capture();
+                    shot = await ScreenShot.Capture(sprite.Screens.All.Count);
                     pill.Clear();
                     if (shot == null)
                     {
@@ -1341,7 +1344,7 @@ namespace Solin.Companion
                     }
                     fx.Sparks(8);
                 }
-                BackendClient.Reply reply = await backend.Chat(text, null, shot);
+                BackendClient.Reply reply = await backend.Chat(text, null, shot, shot == null ? 1 : ScreenShot.LastScreens);
                 thinking = false;
                 chat.Thinking(false);
                 mood.Set(reply.Mood, mood.Trust);
