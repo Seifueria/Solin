@@ -41,7 +41,7 @@ namespace Solin.Companion
         }
 
         // Told where the target is each tick, so she can turn toward it; null when pointing stops.
-        internal Action<int?> Aiming;
+        internal Action<PixelPoint?> Aiming;
 
         internal static readonly bool Debug = Environment.GetEnvironmentVariable("SOLIN_DEBUG_POINT") == "1";
         internal void Stop()
@@ -57,7 +57,9 @@ namespace Solin.Companion
             if (hand == null || t == null) { if (Debug) Console.WriteLine("[point] no target"); Stop(); return false; }
             PixelPoint h = hand();
             PixelRect box = t.Value;
-            Aiming?.Invoke(box.Center.X);
+            // The nearest point of the target to her hand, or its middle if her hand is over it.
+            PixelPoint near = new PixelPoint(Math.Clamp(h.X, box.X, box.Right), Math.Clamp(h.Y, box.Y, box.Bottom));
+            Aiming?.Invoke(near == h ? box.Center : near);
             int pad = 60;
             int left = Math.Min(h.X, box.X) - pad, top = Math.Min(h.Y, box.Y) - pad;
             int right = Math.Max(h.X, box.Right) + pad, bottom = Math.Max(h.Y, box.Bottom) + pad;

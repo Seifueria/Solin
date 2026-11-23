@@ -18,8 +18,8 @@ namespace Solin.Companion
         private readonly DispatcherTimer frames = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
         internal event Action Zapped;
         internal bool Running { get { return frames.IsEnabled; } }
-        // The star's screen x while the show runs, null after: so she can face it.
-        internal Action<int?> Aiming;
+        // The star's screen point while the show runs, null after: so she can face it and hold her arm out at it.
+        internal Action<PixelPoint?> Aiming;
 
         internal SkyWindow()
         {
@@ -34,8 +34,10 @@ namespace Solin.Companion
         }
 
         // hand: where her hand is, in screen pixels; the sky is the screen that point is on.
-        internal void Gaze(Func<PixelPoint> hand)
+        // laser: the dotted trail and the zap from her hand; off when she is sitting or lying, where it does not read.
+        internal void Gaze(Func<PixelPoint> hand, bool laser = true)
         {
+            canvas.Laser = laser;
             PixelPoint h = hand();
             Screen screen = Screens.ScreenFromPoint(h) ?? Screens.Primary;
             if (screen == null) return;
@@ -44,7 +46,7 @@ namespace Solin.Companion
             Position = area.Position;
             Width = area.Width / scale; Height = area.Height / scale;
             canvas.Begin(new Size(Width, Height), () => { PixelPoint p = hand(); return new Point((p.X - area.X) / scale, (p.Y - area.Y) / scale); });
-            Aiming?.Invoke(area.X + (int)(canvas.StarX * scale));
+            Aiming?.Invoke(new PixelPoint(area.X + (int)(canvas.StarX * scale), area.Y + (int)(canvas.StarY * scale)));
             if (!IsVisible) Show();
             Spaces.Front(this);
             frames.Start();
@@ -61,6 +63,8 @@ namespace Solin.Companion
         private readonly List<(int a, int b)> lines = new List<(int, int)>();
         private Point starFrom, starTo;
         internal double StarX { get { return starTo.X; } }
+        internal double StarY { get { return starTo.Y; } }
+        internal bool Laser = true;
         private bool zapped;
         internal event Action Zapped;
 
@@ -89,7 +93,7 @@ namespace Solin.Companion
         internal bool Step()
         {
             double t = clock.Elapsed.TotalSeconds;
-            if (!zapped && t >= Zap) { zapped = true; Zapped?.Invoke(); }
+            if (!zapped && t >= Zap && Laser) { zapped = true; Zapped?.Invoke(); }
             InvalidateVisual();
             return t < End;
         }
@@ -132,7 +136,7 @@ namespace Solin.Companion
             Sparkle(g, star, 9 + 2 * Math.Sin(t * 5), Tint(Paper, glow));
             // Dotted trail from her hand, growing toward the star.
             double trail = Math.Clamp((t - Fade) / (Trail - Fade), 0, 1);
-            if (trail > 0 && t < Zap + 0.1 || t >= Hold)
+            if (Laser && (trail > 0 && t < Zap + 0.1 || t >= Hold))
             {
                 int dots = 34;
                 double reach = t >= Hold ? 1 : trail;
@@ -144,7 +148,7 @@ namespace Solin.Companion
                     g.FillRectangle(Tint(Paper, 0.85 * (t >= Hold ? out_ : 1)), new Rect(p.X - size / 2, p.Y - size / 2, size, size));
                 }
             }
-            if (t >= Zap && t < Hold)
+            if (Laser && t >= Zap && t < Hold)
             {
                 // The zap: a jagged bolt with violet and white edges, a reticle at her hand, a burst and reticle at the star.
                 double z = (t - Zap) / (Hold - Zap);
@@ -164,7 +168,7 @@ namespace Solin.Companion
                 }
                 Sparkle(g, star, 26 * (1 - z * 0.4), Tint(Paper, 1));
             }
-            if (t >= Zap)
+            if (Laser && t >= Zap)
             {
                 // The reticle that stays on the star: a circle and a long crosshair.
                 double r = 30, arm = 80;

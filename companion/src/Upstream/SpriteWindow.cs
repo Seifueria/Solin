@@ -31,6 +31,9 @@ namespace Solin.Companion.Upstream
         private readonly Clip glitch = new Clip("glitch", 10, 9, 1.11);
         // Hanging from the cursor while held, and tumbling while thrown.
         private readonly Clip dangle = new Clip("dangle", 24, 10, 1.11);
+        // The same arm-out art standing on the floor: its feet drawn 9 pixels higher than the idle's, so it is let down that
+        // much. For pointing, stargazing and now and then as her idle. Solin's addition.
+        private readonly Clip stand = new Clip("dangle", 24, 10, 1.11, 0, 9.0 / 384 * 1.11);
         // Asleep on her feet while you are away, and the stretch when you come back.
         private readonly Clip sleep = new Clip("sleep", 16, 6, 1.11);
         // Sitting on a window's top edge: 60 cells at 30 fps in cells cut to her outline, 26 px left of her square's middle
@@ -54,6 +57,8 @@ namespace Solin.Companion.Upstream
         private double satAt = -1;
         internal bool Lying { get { return lying; } }
         internal void LieDown() { if (seat != null && !pressed && !flying) { lying = true; Play(laydown); } }
+        // Off for now (Kaelen's call): she does not walk along the floor on her own.
+        internal bool Walks = false;
         internal void SitUp() { if (lying) { lying = false; Play(seat != null ? perch : idle); } }
         private readonly Clip walk = new Clip("walk", 12, 12, 1.11);
         private readonly Clip dance = new Clip("dance", 16, 16, 1.11);
@@ -302,6 +307,7 @@ namespace Solin.Companion.Upstream
         internal bool Talking;
         // The frame on screen right now, for a live portrait elsewhere.
         internal Clip ShownClip { get { return body.Shown; } }
+        internal bool FacingLeft { get { return body.FacingLeft; } }
         internal int ShownCell { get { return body.Cell; } }
         internal int ShownMouth { get { return body.Talking; } }
         internal Clip ShownMouthClip { get { return body.Mouth; } }
@@ -341,7 +347,16 @@ namespace Solin.Companion.Upstream
         internal PixelPoint HandScreen { get { Point h = HandPoint; return new PixelPoint(Position.X + Px(h.X), Position.Y + Px(h.Y)); } }
 
         // Her hand, roughly, in her window's points: where sparks come from.
-        internal Point HandPoint { get { return new Point(body.Centre.X + (body.FacingLeft ? -1 : 1) * body.Size * 0.22, body.Centre.Y + body.Size * 0.05 - body.Lift); } }
+        internal Point HandPoint
+        {
+            get
+            {
+                // Arm out: the outstretched hand, on the left in the art and on the right mirrored.
+                if (body.Shown == stand || body.Shown == dangle)
+                    return new Point(body.Centre.X + (body.FacingLeft ? 1 : -1) * body.Size * 0.2775, body.Centre.Y - body.Size * 0.032 - body.Lift);
+                return new Point(body.Centre.X + (body.FacingLeft ? -1 : 1) * body.Size * 0.22, body.Centre.Y + body.Size * 0.05 - body.Lift);
+            }
+        }
 
         // A short, visible reaction laid over the idle: a dip of acknowledgement, a jolt of annoyance, or a shake of refusal.
         private string reaction;
@@ -405,6 +420,15 @@ namespace Solin.Companion.Upstream
             teleportLanding = false;
             Play(glitch);
             TeleportStarted?.Invoke();
+        }
+
+        // Straight to a spot with no effect of her own (Solin draws one): off any seat, standing. Solin's addition.
+        internal void PutAt(PixelPoint target)
+        {
+            pendingSeat = null; seat = null; lying = false; floating = false; flying = false; walking = false; body.Lift = 0;
+            teleportTo = null;
+            Position = target;
+            if (clip != sleep) Play(idle);
         }
 
         // Arriving from nowhere (a swipe to another desktop): she is put at target already gone, then reassembles over the
@@ -624,9 +648,33 @@ namespace Solin.Companion.Upstream
             flyX = Position.X; flyY = Position.Y; flyVx = 0; flyVy = 0;
         }
 
-        // Pointing: while set, she turns toward this screen x and leans into it, so her hand is on the side of what she points
-        // at. Solin's addition.
-        internal int? AimX;
+        // Pointing: while set, she turns toward this screen point. Standing, if it is more to the side than above or below
+        // her, she holds her arm out at it (the arm-out art, mirrored to point right); otherwise she keeps her usual pose and
+        // turns. ArmAlways: arm out whatever the angle (stargazing). Solin's addition.
+        internal PixelPoint? Aim;
+        internal bool ArmAlways;
+        // Now and then, standing idle, she holds the arm-out pose for a while instead of the usual one.
+        private double armIdleUntil = -1, nextArmIdle = 90;
+
+        // Whether, standing, she should be in the arm-out pose now; and which way it faces.
+        private bool WantArm(double now, out bool facingLeft)
+        {
+            facingLeft = false;
+            bool standing = seat == null && !lying && !Mini && !walking && !pressed && !flying && !dragging && clip != sleep && clip != wake && clip != glitch && danceUntil < 0;
+            if (!standing) return false;
+            if (Aim.HasValue)
+            {
+                int cx = Position.X + Px(body.Centre.X), cy = Position.Y + Px(body.Centre.Y);
+                double dx = Aim.Value.X - cx, dy = Aim.Value.Y - cy;
+                // The art's arm points to the left; mirrored, to the right.
+                facingLeft = dx > 0;
+                return ArmAlways || Math.Abs(dx) >= Math.Abs(dy) * 0.7;
+            }
+            if (Talking || Busy) return false;
+            if (armIdleUntil > now) { facingLeft = armIdleLeft; return true; }
+            return false;
+        }
+        private bool armIdleLeft;
 
         // Small, with a face plate to show, she is the plate: blinking, looking, talking, scowling. Solin's addition.
         internal Func<string, Avalonia.Media.Imaging.Bitmap> MiniArt;
@@ -672,7 +720,7 @@ namespace Solin.Companion.Upstream
                 string[] kinds = seat != null ? new[] { "look", "cock" } : new[] { "hop", "spin", "look", "cock" };
                 Flourish(kinds[random.Next(kinds.Length)]);
             }
-            if (quiet && onFloor && Wanderlust > 0 && now >= nextWander)
+            if (quiet && onFloor && Walks && Wanderlust > 0 && now >= nextWander)
             {
                 nextWander = now + (60 + random.NextDouble() * 120) / Math.Max(0.05, Wanderlust);
                 if (random.NextDouble() < Wanderlust) Wander(now);
@@ -738,6 +786,16 @@ namespace Solin.Companion.Upstream
             if ((pressed || flying) && clip != dangle && clip != glitch) Play(dangle);
             if (clip == sleep && pressed) Play(wake);
             if (!pressed && !flying && clip == dangle) Play(seat != null ? perch : idle);
+            // Standing: the arm-out pose while pointing or for a spell of idling, the usual one otherwise.
+            if (quiet && clip == idle && !Aim.HasValue && armIdleUntil < now && now >= nextArmIdle)
+            {
+                nextArmIdle = now + 60 + random.NextDouble() * 120;
+                if (random.NextDouble() < 0.45) { armIdleUntil = now + 15 + random.NextDouble() * 30; armIdleLeft = random.NextDouble() < 0.5; }
+            }
+            bool arm = WantArm(now, out bool armLeft);
+            if (arm && clip == idle) { Play(stand); index = 0; cell = 0; shown = stand; }
+            if (!arm && clip == stand) { Play(seat != null ? perch : idle); index = 0; cell = 0; shown = clip; }
+            if (clip == stand) { cell = index % stand.Count; shown = stand; }
             // Small, she turns to face the cursor, with a little hysteresis so she does not flicker when it is near.
             if (Mini && CursorAt != null && !pressed && !flying && now - facedAt > 0.25)
             {
@@ -750,8 +808,9 @@ namespace Solin.Companion.Upstream
                     else if (at.Value.X > middle + Px(body.Size * 0.15)) body.FacingLeft = false;
                 }
             }
-            else if (!Mini && !walking && flourish == null && AimX == null) body.FacingLeft = false;
-            if (AimX.HasValue && !walking && !pressed && !flying) body.FacingLeft = AimX.Value < Position.X + Px(body.Centre.X);
+            else if (!Mini && !walking && flourish == null && !Aim.HasValue && clip != stand) body.FacingLeft = false;
+            if (clip == stand) body.FacingLeft = armLeft;
+            else if (Aim.HasValue && !walking && !pressed && !flying) body.FacingLeft = Aim.Value.X < Position.X + Px(body.Centre.X);
             bool settled = !dragging && !flying && clip != glitch;
             // Asleep she only breathes, slow and deep.
             if (clip == sleep)
@@ -788,7 +847,7 @@ namespace Solin.Companion.Upstream
             if (floating && settled) body.Breathe += Math.Sin(now * 0.9) * 7 * scale;
             body.Tilt = walking ? Math.Sin(now * 9) * 1.2 : settled ? Math.Sin(now * TiltRate) * TiltDepth : flying ? Math.Clamp(flyVx / 60, -25, 25) : 0;
             // Leaning toward what she points at.
-            if (AimX.HasValue && settled) body.Tilt += body.FacingLeft ? -5 : 5;
+            if (Aim.HasValue && settled && clip != stand) body.Tilt += body.FacingLeft ? -5 : 5;
             double age = now - reactionAt;
             if (settled && age >= 0 && age < ReactionLife)
             {
