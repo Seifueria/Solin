@@ -115,8 +115,11 @@ class ClaudeCli(Provider):
         tools = ["--tools", "Read", "--allowedTools", "Read", "--add-dir", os.path.dirname(image)] if image else ["--tools", ""]
         args = [self.path, "-p", "--output-format", "json", "--system-prompt", system, "--model", self.model,
                 *tools, "--no-session-persistence", "--setting-sources", ""]
+        # Only the call to the model leaves the Mac: Claude Code's own usage logs (sent to Datadog), error reports and
+        # update checks are off. Firewalls like Intego otherwise ask about that traffic in Solin's name every launch.
+        quiet = dict(os.environ, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1")
         with tempfile.TemporaryDirectory() as empty:
-            done = subprocess.run(args, input=prompt, capture_output=True, text=True, timeout=180, cwd=empty)
+            done = subprocess.run(args, input=prompt, capture_output=True, text=True, timeout=180, cwd=empty, env=quiet)
         if done.returncode != 0:
             raise RuntimeError("claude exited %d: %s" % (done.returncode, done.stderr.strip()[:300]))
         try:
