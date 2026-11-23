@@ -64,7 +64,7 @@ namespace Solin.Companion
         private Func<PixelPoint> anchor;
         internal event Action TypeClicked;
         internal event Action VoiceClicked;
-        internal const double Wide = 120, Tall = 44;
+        internal const double Wide = 108, Tall = 40;
 
         internal TalkPill()
         {
@@ -129,10 +129,10 @@ namespace Solin.Companion
             double mid = w / 2;
             g.DrawLine(new Pen(new SolidColorBrush(Rim), 1.2), new Point(mid, h * 0.28), new Point(mid, h * 0.72));
             Point left = new Point(w * 0.27, h / 2), right = new Point(w * 0.73, h / 2);
-            if (Hover == 1 || Typing) g.DrawEllipse(new SolidColorBrush(Lit), null, left, h * 0.36, h * 0.36);
-            if (Hover == 2) g.DrawEllipse(new SolidColorBrush(Lit), null, right, h * 0.36, h * 0.36);
-            Pencil(g, left, h * 0.3, Hover == 1 || Typing ? CutFrame.Cyan : Grey);
-            Wave(g, right, h * 0.3, Muted ? Dim : Hover == 2 ? CutFrame.Cyan : Grey, Muted);
+            if (Hover == 1 || Typing) g.DrawEllipse(new SolidColorBrush(Lit), null, left, h * 0.32, h * 0.32);
+            if (Hover == 2) g.DrawEllipse(new SolidColorBrush(Lit), null, right, h * 0.32, h * 0.32);
+            Pencil(g, left, h * 0.19, Hover == 1 || Typing ? CutFrame.Cyan : Grey);
+            Wave(g, right, h * 0.19, Muted ? Dim : Hover == 2 ? CutFrame.Cyan : Grey, Muted);
         }
 
         // A square-cut pencil at 45 degrees.
@@ -161,7 +161,7 @@ namespace Solin.Companion
             for (int i = 0; i < 5; i++)
             {
                 double x = c.X + (i - 2) * gap, half = r * tall[i];
-                g.DrawLine(new Pen(new SolidColorBrush(colour), r * 0.26, lineCap: PenLineCap.Round), new Point(x, c.Y - half), new Point(x, c.Y + half));
+                g.DrawLine(new Pen(new SolidColorBrush(colour), r * 0.3, lineCap: PenLineCap.Round), new Point(x, c.Y - half), new Point(x, c.Y + half));
             }
             if (muted) g.DrawLine(new Pen(new SolidColorBrush(CutFrame.Red), r * 0.18, lineCap: PenLineCap.Round), new Point(c.X - r * 1.1, c.Y + r * 1.1), new Point(c.X + r * 1.1, c.Y - r * 1.1));
         }
