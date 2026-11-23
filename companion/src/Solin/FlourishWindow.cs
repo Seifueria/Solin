@@ -69,10 +69,12 @@ namespace Solin.Companion
         internal void Shatter(PixelPoint centre, double size) { canvas.Shatter(Cover(centre), size); }
         internal void Beam(PixelPoint centre, double size) { canvas.Beam(Cover(centre), size); }
 
-        internal void Burst(PixelPoint centre, double size)
+        // cutInArt: a still for the cut-in panel; null shows her live face as before.
+        internal void Burst(PixelPoint centre, double size, Avalonia.Media.Imaging.Bitmap cutInArt = null, bool rays = true)
         {
             Point at = Cover(centre);
-            canvas.Burst(at, size);
+            cutIn.Child = cutInArt != null ? new Image { Source = cutInArt, Stretch = Stretch.UniformToFill } : (Control)face;
+            if (rays) canvas.Burst(at, size);
             // The cut-in slides in beside her head and holds for a beat; kept on screen.
             double x = Math.Min(at.X + size * 0.35, canvas.Area.Width - cutIn.Width - 30);
             double y = Math.Max(20, at.Y - size * 0.9);

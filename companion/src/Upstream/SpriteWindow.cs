@@ -603,6 +603,32 @@ namespace Solin.Companion.Upstream
             flyX = Position.X; flyY = Position.Y; flyVx = 0; flyVy = 0;
         }
 
+        // Pointing: while set, she turns toward this screen x and leans into it, so her hand is on the side of what she points
+        // at. Solin's addition.
+        internal int? AimX;
+
+        // Small, with a face plate to show, she is the plate: blinking, looking, talking, scowling. Solin's addition.
+        internal Func<string, Avalonia.Media.Imaging.Bitmap> MiniArt;
+        private double nextPlateBlink = 3, plateBlinkAt = -10;
+
+        private string PlateState(double now)
+        {
+            bool annoyed = reaction == "jolt" && now - reactionAt < 2.5;
+            if (body.Glitch > 0.2 || clip == glitch) return "glitch";
+            if (Talking) return (annoyed ? "annoyed_talk" : ((int)(now * 6) % 2 == 0 ? "talk" : "talk2"));
+            if (annoyed) return "annoyed";
+            if (now > nextPlateBlink) { plateBlinkAt = now; nextPlateBlink = now + 2.5 + random.NextDouble() * 3.5; }
+            if (now - plateBlinkAt < 0.14) return "blink";
+            PixelPoint? at = CursorAt?.Invoke();
+            if (at.HasValue)
+            {
+                int middle = Position.X + Px(body.Centre.X);
+                if (at.Value.X < middle - Px(body.Size * 0.6)) return "look_left";
+                if (at.Value.X > middle + Px(body.Size * 0.6)) return "look_right";
+            }
+            return "idle";
+        }
+
         private void Advance(double now)
         {
             double dt = lastTick > 0 ? Math.Min(now - lastTick, 0.1) : 0.033;
@@ -703,7 +729,8 @@ namespace Solin.Companion.Upstream
                     else if (at.Value.X > middle + Px(body.Size * 0.15)) body.FacingLeft = false;
                 }
             }
-            else if (!Mini && !walking && flourish == null) body.FacingLeft = false;
+            else if (!Mini && !walking && flourish == null && AimX == null) body.FacingLeft = false;
+            if (AimX.HasValue && !walking && !pressed && !flying) body.FacingLeft = AimX.Value < Position.X + Px(body.Centre.X);
             bool settled = !dragging && !flying && clip != glitch;
             // Asleep she only breathes, slow and deep.
             if (clip == sleep)
@@ -739,6 +766,8 @@ namespace Solin.Companion.Upstream
             // Hovering, she rides a slow swell on top of her breathing.
             if (floating && settled) body.Breathe += Math.Sin(now * 0.9) * 7 * scale;
             body.Tilt = walking ? Math.Sin(now * 9) * 1.2 : settled ? Math.Sin(now * TiltRate) * TiltDepth : flying ? Math.Clamp(flyVx / 60, -25, 25) : 0;
+            // Leaning toward what she points at.
+            if (AimX.HasValue && settled) body.Tilt += body.FacingLeft ? -5 : 5;
             double age = now - reactionAt;
             if (settled && age >= 0 && age < ReactionLife)
             {
@@ -749,6 +778,8 @@ namespace Solin.Companion.Upstream
             }
             body.Glitch = glitchUntil > now ? Math.Min(1, (glitchUntil - now) * 2) : clip == glitch || clip == perchGlitch ? 0.6 : 0;
             ApplyFlourish(now);
+            body.Override = Mini && MiniArt != null ? MiniArt(PlateState(now)) : null;
+            if (body.Override != null) body.FacingLeft = false;
             body.Shown = shown;
             body.Cell = cell;
             body.Mouth = idleMouth;

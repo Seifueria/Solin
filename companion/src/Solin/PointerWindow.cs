@@ -39,7 +39,10 @@ namespace Solin.Companion
             frames.Start();
         }
 
-        internal void Stop() { frames.Stop(); Hide(); }
+        // Told where the target is each tick, so she can turn toward it; null when pointing stops.
+        internal Action<int?> Aiming;
+
+        internal void Stop() { frames.Stop(); Hide(); Aiming?.Invoke(null); }
 
         // Sizes the window to cover hand and target with a margin, and hands the canvas their local coordinates.
         private bool Fit()
@@ -48,6 +51,7 @@ namespace Solin.Companion
             if (hand == null || t == null) { Stop(); return false; }
             PixelPoint h = hand();
             PixelRect box = t.Value;
+            Aiming?.Invoke(box.Center.X);
             int pad = 60;
             int left = Math.Min(h.X, box.X) - pad, top = Math.Min(h.Y, box.Y) - pad;
             int right = Math.Max(h.X, box.Right) + pad, bottom = Math.Max(h.Y, box.Bottom) + pad;

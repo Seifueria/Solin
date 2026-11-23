@@ -61,6 +61,7 @@ namespace Solin.Companion
 
         internal static readonly Color Green = Color.FromRgb(54, 255, 122), Red = Color.FromRgb(255, 33, 82), Violet = Color.FromRgb(123, 61, 255);
         internal Func<(Clip clip, int cell, Clip mouth, int mouthCell)> Frame { set { face.Frame = value; } }
+        internal Func<Avalonia.Media.Imaging.Bitmap> Still { set { face.Still = value; } }
         internal event Action Acknowledged;
 
         internal Card()
