@@ -80,6 +80,8 @@ namespace Solin.Companion
         private readonly DispatcherTimer skyTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         // Spells she starts herself and ends herself: a nap, being put away, a stretch in mini form.
         private DateTime? napUntil, selfAwayUntil, selfMiniUntil;
+        // Her last few idle actions, newest first, so she varies what she does.
+        private readonly System.Collections.Generic.List<string> recentIdle = new System.Collections.Generic.List<string>();
         // Mischief (on unless turned off in settings): teleport chains, tugging your cursor, a fake "infection" terminal,
         // lightning round a window. Nothing that changes anything on the Mac.
         private bool mischief = true;
@@ -890,6 +892,17 @@ namespace Solin.Companion
             };
             string only = Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE_ONLY");
             if (rush && !string.IsNullOrEmpty(only)) options.RemoveAll(o => Array.IndexOf(only.Split(','), o.what) < 0);
+            // Less of the same: what she did last is much less likely next, the one before that somewhat less, and another
+            // teleport straight after a teleport less likely too. Still possible, just rarer.
+            string[] teleports = { "seat", "hop", "chain" };
+            for (int i = 0; i < options.Count; i++)
+            {
+                (double w, string what, Func<bool> act) = options[i];
+                if (recentIdle.Count > 0 && what == recentIdle[0]) w *= 0.15;
+                else if (recentIdle.Count > 1 && what == recentIdle[1]) w *= 0.4;
+                else if (recentIdle.Count > 0 && Array.IndexOf(teleports, recentIdle[0]) >= 0 && Array.IndexOf(teleports, what) >= 0) w *= 0.5;
+                options[i] = (w, what, act);
+            }
             // Two tries: if the first pick cannot happen here (no window to sit on, say), another.
             for (int attempt = 0; attempt < 2 && options.Count > 0; attempt++)
             {
@@ -901,7 +914,7 @@ namespace Solin.Companion
                 (double _, string what, Func<bool> act) = options[chosen];
                 bool done = act();
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") == "1") Console.WriteLine("[idle] " + now.ToString("HH:mm:ss") + " " + what + " " + (done ? "done" : "couldn't"));
-                if (done) return;
+                if (done) { recentIdle.Insert(0, what); if (recentIdle.Count > 3) recentIdle.RemoveAt(3); return; }
                 options.RemoveAt(chosen);
             }
         }
