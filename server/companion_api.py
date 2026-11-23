@@ -505,9 +505,94 @@ def hook():
     with lock:
         recent_hooks.append({"at": datetime.now().isoformat(timespec="seconds"), "event": event})
         del recent_hooks[:-30]
+    snapshot = apply_event(event)
+    if snapshot is None:
+        return jsonify({"ignored": event.get("hook_event_name")})
+    return jsonify(snapshot)
+
+
+# A turn you stop sends no hook at all (not even while Claude is waiting on a permission), so while a chat is working or
+# waiting on you, the end of its transcript is read once a second for the stop, or a rejected tool, and her state is set
+# from that. Only the transcript's path comes from the hook; the file is read here, on your Mac.
+transcripts = {}
+watching = set()
+INTERRUPTED = "[Request interrupted by user"
+
+
+def watch_transcript_for(event, state):
+    sid, path = event.get("session_id"), event.get("transcript_path")
+    if sid and isinstance(path, str) and path:
+        transcripts[sid] = path
+    path = transcripts.get(sid)
+    if state not in ("working", "needs_you") or not sid or not path or sid in watching or not os.path.isfile(path):
+        return
+    watching.add(sid)
+    threading.Thread(target=watch_transcript, args=(sid, path), daemon=True).start()
+
+
+def transcript_news(lines):
+    """(stopped, rejected) from new transcript lines."""
+    stopped = rejected = False
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if entry.get("type") != "user":
+            continue
+        content = (entry.get("message") or {}).get("content")
+        parts = content if isinstance(content, list) else [{"type": "text", "text": content or ""}]
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text" and str(part.get("text") or "").startswith(INTERRUPTED):
+                stopped = True
+            if part.get("type") == "tool_result" and "doesn't want to proceed" in str(part.get("content")):
+                rejected = True
+    return stopped, rejected
+
+
+def watch_transcript(sid, path):
+    try:
+        offset = os.path.getsize(path)
+        while True:
+            time.sleep(1.0)
+            with lock:
+                live = agent["session"] == sid and agent["state"] in ("working", "needs_you")
+            if not live:
+                return
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                return
+            if size < offset:
+                offset = size
+            if size <= offset:
+                continue
+            with open(path, "rb") as f:
+                f.seek(offset)
+                chunk = f.read(size - offset)
+            end = chunk.rfind(b"\n")
+            if end < 0:
+                continue
+            offset += end + 1
+            stopped, rejected = transcript_news(chunk[:end].decode("utf-8", "replace").splitlines())
+            if stopped:
+                apply_event({"hook_event_name": "Stop", "is_interrupt": True, "session_id": sid})
+                return
+            if rejected:
+                apply_event({"hook_event_name": "PermissionDenied", "session_id": sid})
+    except OSError:
+        pass
+    finally:
+        watching.discard(sid)
+
+
+def apply_event(event):
+    """One hook event (or one read from a transcript) into her agent state; the new state, or None if it means nothing."""
     state, detail = agent_state_of(event)
     if state is None:
-        return jsonify({"ignored": event.get("hook_event_name")})
+        return None
     name = event.get("hook_event_name", "")
     with lock:
         if name == "UserPromptSubmit":
@@ -527,7 +612,9 @@ def hook():
         broadcast("agent", dict(agent))
         if state in ("working", "needs_you", "done", "error"):
             bond.note("agent_" + state)
-    return jsonify(agent)
+    watch_transcript_for(event, state)
+    with lock:
+        return dict(agent)
 
 
 @app.get("/hook/recent")
