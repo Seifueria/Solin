@@ -19,7 +19,8 @@ STYLE = """Write Solin's visible reply aloud:
 - Include audio tags like [pause], [soft sigh], [teasing]
 - Keep continuity with past memory
 - Randomness should feel natural to Solin's personality (teasing, calm, sarcastic)
-- Keep it short: one or two sentences, about 30 words at most, unless they ask for detail, steps or a list"""
+- Keep it short: one or two sentences, about 30 words at most, unless they ask for detail, steps or a list
+- No emoji"""
 
 
 def mood_of(text):
@@ -71,17 +72,20 @@ def wants_detail(text):
     return bool(DETAIL.search(text or ""))
 
 
-def brief(reply, asked):
-    """At most two sentences unless they asked for detail; audio tags ride along with the words they precede."""
-    if wants_detail(asked):
+EMOJI = re.compile("[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F900-\U0001F9FF\uFE0F\u200D\u2B50\u2764]")
+
+
+def brief(reply, asked, sentences=2):
+    """At most this many sentences unless they asked for detail; audio tags ride along with the words they precede."""
+    if wants_detail(asked) and sentences >= 2:
         return reply
     parts = re.split(r"(?<=[.!?…])\s+", reply.strip())
-    kept, sentences = [], 0
+    kept, seen = [], 0
     for part in parts:
         kept.append(part)
         if re.sub(r"\[[^\]]*\]", "", part).strip():
-            sentences += 1
-        if sentences >= 2:
+            seen += 1
+        if seen >= sentences:
             break
     return " ".join(kept).strip()
 
@@ -96,4 +100,5 @@ def tidy(reply):
             if cut:
                 reply = cut[0].upper() + cut[1:]
             break
+    reply = EMOJI.sub("", reply)
     return re.sub(r"\s{2,}", " ", reply).strip()

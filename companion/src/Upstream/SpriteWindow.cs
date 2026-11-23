@@ -33,7 +33,19 @@ namespace Solin.Companion.Upstream
         private readonly Clip dangle = new Clip("dangle", 24, 10, 1.11);
         // The same arm-out art standing on the floor: its feet drawn 9 pixels higher than the idle's, so it is let down that
         // much. For pointing, stargazing and now and then as her idle. Solin's addition.
-        private readonly Clip stand = new Clip("dangle", 24, 10, 1.11, 0, 9.0 / 384 * 1.11);
+        private readonly Clip dangleStand = new Clip("dangle", 24, 10, 1.11, 0, 9.0 / 384 * 1.11);
+        // Her old standing idle with her arm out (the base's idle_legacy, with its own blink and mouth), read at runtime from
+        // the references folder. Its feet sit 20 pixels right of the idle's, so it is shifted back that much. Without the art,
+        // the arm-out dangle stands in.
+        private static string LegacyArt(string name) { return System.IO.Path.Combine(ArtLibrary.Root, "Lachy", "assets", "sprites", name + ".png"); }
+        private const double LegacyShiftX = -20.0 / 384 * 1.11;
+        private readonly Clip legacy = new Clip("idle_legacy", 16, 8, 1.11, LegacyShiftX, 0, LegacyArt("idle_legacy"));
+        private readonly Clip legacyBlink = new Clip("blink", 4, 8, 1.11, LegacyShiftX, 0, LegacyArt("blink"));
+        private readonly Clip legacyMouth = new Clip("mouth", 5, 12, 1.11, LegacyShiftX, 0, LegacyArt("mouth"));
+        private Clip standClip;
+        private Clip stand { get { return standClip ??= legacy.Available ? legacy : dangleStand; } }
+        private bool legacyBlinking;
+        private int legacyCycle = -1;
         // Asleep on her feet while you are away, and the stretch when you come back.
         private readonly Clip sleep = new Clip("sleep", 16, 6, 1.11);
         // Sitting on a window's top edge: 60 cells at 30 fps in cells cut to her outline, 26 px left of her square's middle
@@ -352,7 +364,9 @@ namespace Solin.Companion.Upstream
             get
             {
                 // Arm out: the outstretched hand, on the left in the art and on the right mirrored.
-                if (body.Shown == stand || body.Shown == dangle)
+                if (body.Shown == legacy || body.Shown == legacyBlink)
+                    return new Point(body.Centre.X + (body.FacingLeft ? 1 : -1) * body.Size * 0.3093, body.Centre.Y + body.Size * 0.020 - body.Lift);
+                if (body.Shown == dangleStand || body.Shown == dangle)
                     return new Point(body.Centre.X + (body.FacingLeft ? 1 : -1) * body.Size * 0.2775, body.Centre.Y - body.Size * 0.032 - body.Lift);
                 return new Point(body.Centre.X + (body.FacingLeft ? -1 : 1) * body.Size * 0.22, body.Centre.Y + body.Size * 0.05 - body.Lift);
             }
@@ -670,7 +684,7 @@ namespace Solin.Companion.Upstream
                 facingLeft = dx > 0;
                 return ArmAlways || Math.Abs(dx) >= Math.Abs(dy) * 0.7;
             }
-            if (Talking || Busy) return false;
+            if ((Talking || Busy) && stand != legacy) return false;
             if (armIdleUntil > now) { facingLeft = armIdleLeft; return true; }
             return false;
         }
@@ -795,7 +809,18 @@ namespace Solin.Companion.Upstream
             bool arm = WantArm(now, out bool armLeft);
             if (arm && clip == idle) { Play(stand); index = 0; cell = 0; shown = stand; }
             if (!arm && clip == stand) { Play(seat != null ? perch : idle); index = 0; cell = 0; shown = clip; }
-            if (clip == stand) { cell = index % stand.Count; shown = stand; }
+            if (clip == stand)
+            {
+                cell = index % stand.Count;
+                shown = stand;
+                // The legacy pose blinks with its own four frames, in the middle of some loops.
+                if (stand == legacy && legacyBlink.Available)
+                {
+                    int cycle = index / stand.Count;
+                    if (cycle != legacyCycle) { legacyCycle = cycle; legacyBlinking = random.NextDouble() < BlinkChance * 0.7; }
+                    if (legacyBlinking && cell >= 8 && cell < 12) { shown = legacyBlink; cell -= 8; }
+                }
+            }
             // Small, she turns to face the cursor, with a little hysteresis so she does not flicker when it is near.
             if (Mini && CursorAt != null && !pressed && !flying && now - facedAt > 0.25)
             {
@@ -862,10 +887,13 @@ namespace Solin.Companion.Upstream
             if (body.Override != null) body.FacingLeft = false;
             body.Shown = shown;
             body.Cell = cell;
-            body.Mouth = idleMouth;
-            // The mouth only fits the plain idle face, not a blink; a bit of jitter keeps it from looking metronomic.
-            body.Talking = Talking && shown == idle ? (int)(now * idleMouth.Fps + Math.Sin(now * 7) * 1.5) % idleMouth.Count : -1;
-            if (body.Talking < 0 && Talking && shown == idle) body.Talking = 0;
+            bool legacyFace = shown == legacy && legacyMouth.Available;
+            body.Mouth = legacyFace ? legacyMouth : idleMouth;
+            // The mouth only fits a plain face (the idle's or the legacy pose's), not a blink; a bit of jitter keeps it from
+            // looking metronomic.
+            bool mouthFits = shown == idle || legacyFace;
+            body.Talking = Talking && mouthFits ? (int)(now * body.Mouth.Fps + Math.Sin(now * 7) * 1.5) % body.Mouth.Count : -1;
+            if (body.Talking < 0 && Talking && mouthFits) body.Talking = 0;
             body.InvalidateVisual();
         }
 

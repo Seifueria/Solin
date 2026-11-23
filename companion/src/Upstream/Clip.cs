@@ -25,8 +25,14 @@ namespace Solin.Companion.Upstream
         // How far a cell's middle sits from the middle of the body's square, as a share of its size.
         internal readonly double ShiftX, ShiftY;
 
-        internal Clip(string title, int count, double fps, double height, double shiftX = 0, double shiftY = 0)
+        // file: read the strip from this picture on disk instead of the built-in art (Solin's addition, for art loaded at
+        // runtime from the references folder); null for built-in.
+        private readonly string file;
+        internal bool Available { get { return file == null || File.Exists(file); } }
+
+        internal Clip(string title, int count, double fps, double height, double shiftX = 0, double shiftY = 0, string file = null)
         {
+            this.file = file;
             Title = title;
             Count = count;
             Fps = fps;
@@ -35,9 +41,9 @@ namespace Solin.Companion.Upstream
             ShiftY = shiftY;
         }
 
-        internal Bitmap Strip { get { if (strip == null) strip = Read(Prefix + Title + ".png"); return strip; } }
+        internal Bitmap Strip { get { if (strip == null) strip = file != null ? new Bitmap(file) : Read(Prefix + Title + ".png"); return strip; } }
 
-        internal bool HasFlipped { get { return Has(Prefix + Title + "_flipped.png"); } }
+        internal bool HasFlipped { get { return file == null && Has(Prefix + Title + "_flipped.png"); } }
 
         // The strip facing left, when the artist drew one; otherwise the normal strip, which the body mirrors itself.
         internal Bitmap Art(bool left)
