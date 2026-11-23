@@ -454,7 +454,7 @@ namespace Solin.Companion
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[sky] started " + Stargaze(asked: true)), TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") == "1") skyTimer.Interval = TimeSpan.FromSeconds(4);
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_GLANCE") == "1")
-                    DispatcherTimer.RunOnce(async () => { Console.WriteLine("[glance] looking"); await Glance(now: true); Console.WriteLine("[glance] refused " + glanceRefused + " said: " + (bubble.IsVisible ? "yes" : "no") + " " + ScreenShot.LastError); }, TimeSpan.FromSeconds(6));
+                    DispatcherTimer.RunOnce(async () => { Console.WriteLine("[glance] looking; allowed " + ScreenShot.Allowed()); await Glance(now: true); Console.WriteLine("[glance] refused " + glanceRefused + " said: " + (bubble.IsVisible ? "yes" : "no") + " " + ScreenShot.LastError); }, TimeSpan.FromSeconds(6));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSE") == "1")
                 {
                     DispatcherTimer poseProbe = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -981,11 +981,13 @@ namespace Solin.Companion
             string shot = await ScreenShot.Capture();
             if (shot == null)
             {
-                // No Screen Recording permission: say so once, then stop trying until she is restarted.
+                // No Screen Recording permission: ask macOS in her own name (its prompt, and her entry in the list), say so
+                // once, then stop trying until she is restarted.
                 glanceRefused = true;
                 if (!lookPermissionAsked)
                 {
                     lookPermissionAsked = true;
+                    ScreenShot.Request();
                     card.Show("mac", "PERMISSION", Card.Red, "I can't see your screen yet.", "Turn Solin on in System Settings › Privacy & Security › Screen Recording, then quit and reopen me.", null, "OPEN SETTINGS", 30);
                 }
                 return;
@@ -1328,6 +1330,7 @@ namespace Solin.Companion
                     pill.Clear();
                     if (shot == null)
                     {
+                        ScreenShot.Request();
                         thinking = false;
                         chat.Thinking(false);
                         card.Show("mac", "PERMISSION", Card.Red, "I can't see your screen yet.",
