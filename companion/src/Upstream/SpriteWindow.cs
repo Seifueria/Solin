@@ -674,9 +674,8 @@ namespace Solin.Companion.Upstream
             flyX = Position.X; flyY = Position.Y; flyVx = 0; flyVy = 0;
         }
 
-        // Pointing: while set, she turns toward this screen point. Standing, if it is more to the side than above or below
-        // her, she holds her arm out at it (the arm-out art, mirrored to point right); otherwise she keeps her usual pose and
-        // turns. ArmAlways: arm out whatever the angle (stargazing). Solin's addition.
+        // Pointing: while set, she turns toward this screen point. Standing, if it is to the side or below her, she holds her
+        // arm out at it (the arm-out art, mirrored to point right); if it is above her she keeps her usual pose and turns. ArmAlways: arm out whatever the angle (stargazing). Solin's addition.
         internal PixelPoint? Aim;
         internal bool ArmAlways;
         // Now and then, standing idle, she holds the arm-out pose for a while instead of the usual one.
@@ -694,7 +693,8 @@ namespace Solin.Companion.Upstream
                 double dx = Aim.Value.X - cx, dy = Aim.Value.Y - cy;
                 // The art's arm points to the left; mirrored, to the right.
                 facingLeft = dx > 0;
-                return ArmAlways || Math.Abs(dx) >= Math.Abs(dy) * 0.7;
+                // Below her the arm-out pose fits too; only straight above does she keep her usual pose.
+                return ArmAlways || dy > 0 || Math.Abs(dx) >= Math.Abs(dy) * 0.7;
             }
             if ((Talking || Busy) && stand != legacy) return false;
             if (armIdleUntil > now) { facingLeft = armIdleLeft; return true; }

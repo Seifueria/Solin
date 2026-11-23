@@ -250,10 +250,8 @@ namespace Solin.Companion
                 if (sprite.QuietLanding) { sprite.QuietLanding = false; sprite.Jitter(0.7); return; }
                 // A finished task gets the full arrival: the beam and the burst.
                 if (agentState == "done") { sprite.Jitter(0.25); flourish.Beam(sprite.ScreenCentre, sprite.BodySize); flourish.Burst(sprite.ScreenCentre, sprite.BodySize, panel: false); return; }
-                // Otherwise the beam only some of the time (rarer in a quick chain): sparks off her, or just the glitch.
-                double roll = pick.NextDouble(), beam = sprite.TeleportSpeed > 1 ? 0.15 : 0.35;
-                if (roll < beam) { sprite.Jitter(0.25); flourish.Beam(sprite.ScreenCentre, sprite.BodySize); }
-                else if (roll < beam + 0.35) { sprite.Jitter(0.3); fx.Sparks(10); }
+                // Otherwise no beam (Kaelen's call: only a finished task gets one): sparks off her now and then, else just the glitch.
+                if (pick.NextDouble() < 0.4) { sprite.Jitter(0.3); fx.Sparks(10); }
                 else sprite.Jitter(0.6);
             };
             voice.Speaking += delegate(bool on) { Dispatcher.UIThread.Post(() => { voiceTalking = on; Mouth(on); }); };
@@ -384,7 +382,7 @@ namespace Solin.Companion
                     case "smear": sfx.Play("zap"); break;
                 }
             };
-            possess.Finished += delegate { sfx.Play("zap"); sprite.Arrive(0.5); sprite.Jitter(0.35); flourish.Beam(sprite.ScreenCentre, sprite.BodySize); };
+            possess.Finished += delegate { sfx.Play("zap"); sprite.Arrive(0.5); sprite.Jitter(0.35); fx.Sparks(10); };
             sprite.Landed += delegate { if (possessPending) { possessPending = false; if (sprite.Seated) DispatcherTimer.RunOnce(BeginPossession, TimeSpan.FromMilliseconds(400)); } };
             // Now and then, when nothing is going on, she looks up at the sky; more often at night.
             skyTimer.Tick += delegate { IdleTurn(); };
@@ -460,6 +458,10 @@ namespace Solin.Companion
                     DispatcherTimer poseProbe = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
                     poseProbe.Tick += delegate { Console.WriteLine("[pose] " + sprite.ShownClip?.Title + " shift " + sprite.ShownClip?.ShiftY.ToString("0.000") + " left " + sprite.FacingLeft + " aim " + sprite.Aim + " hand " + sprite.HandScreen + " centre " + sprite.ScreenCentre); };
                     poseProbe.Start();
+                    // Pointing straight down, then straight up, for checking which pose each gets.
+                    DispatcherTimer.RunOnce(() => { PixelPoint c = sprite.ScreenCentre; pointer.Point(() => sprite.HandScreen, () => new PixelRect(c.X - Px(40), c.Y + Px(sprite.BodySize * 0.9), Px(80), Px(40)), false, "DOWN"); }, TimeSpan.FromSeconds(4));
+                    DispatcherTimer.RunOnce(() => { PixelPoint c = sprite.ScreenCentre; pointer.Point(() => sprite.HandScreen, () => new PixelRect(c.X - Px(40), c.Y - Px(sprite.BodySize * 1.6), Px(80), Px(40)), false, "UP"); }, TimeSpan.FromSeconds(8));
+                    DispatcherTimer.RunOnce(() => pointer.Stop(), TimeSpan.FromSeconds(12));
                 }
                 string awayTo = Environment.GetEnvironmentVariable("SOLIN_DEBUG_AWAY_TO");
                 if (!string.IsNullOrEmpty(awayTo))
@@ -790,8 +792,7 @@ namespace Solin.Companion
             Spaces.ToActiveSpace(sprite);
             if (sprite.Asleep) sprite.Wake();
             sfx.Play("zap");
-            flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
-            DispatcherTimer.RunOnce(() => { sprite.Arrive(0.55); sprite.Jitter(0.3); }, TimeSpan.FromMilliseconds(160));
+            DispatcherTimer.RunOnce(() => { sprite.Arrive(0.55); sprite.Jitter(0.5); }, TimeSpan.FromMilliseconds(160));
             _ = backend.Event("greeted");
         }
 
@@ -1141,8 +1142,7 @@ namespace Solin.Companion
         {
             sfx.Play("zap");
             sprite.Arrive(0.7);
-            sprite.Jitter(0.3);
-            flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
+            sprite.Jitter(0.5);
         }
 
         // Once a second: sleep when you have been away a while, wake when you return, nudge a break after two hours of no pauses.
