@@ -26,6 +26,10 @@ namespace Solin.Companion.Upstream
         internal double Lift;
         // 0 none, 1 heavy: a few horizontal slices of her jump sideways this frame, without fading. Solin's addition.
         internal double Glitch;
+        // Squash and stretch about her feet: 1 is her true shape. Solin's addition.
+        internal double ScaleX = 1, ScaleY = 1;
+        // A sideways nudge of the whole body, for a knock-back. Solin's addition.
+        internal double Shove;
         private static readonly Random tear = new Random(7);
 
         internal Rect Place(Clip shown)
@@ -41,10 +45,14 @@ namespace Solin.Companion.Upstream
         {
             get
             {
+                // Squash and stretch happen about her feet, so a landing flattens her downward rather than through the floor.
+                double feetY = Centre.Y + Size * 0.49;
                 return Matrix.CreateTranslation(-Centre.X, -Centre.Y)
                     * Matrix.CreateScale(FacingLeft ? -1 : 1, 1)
                     * Matrix.CreateRotation(Tilt * Math.PI / 180)
-                    * Matrix.CreateTranslation(Centre.X, Centre.Y + Breathe - Lift);
+                    * Matrix.CreateTranslation(Centre.X, Centre.Y)
+                    * Matrix.CreateTranslation(-Centre.X, -feetY) * Matrix.CreateScale(ScaleX, ScaleY) * Matrix.CreateTranslation(Centre.X, feetY)
+                    * Matrix.CreateTranslation(Shove, Breathe - Lift);
             }
         }
 
