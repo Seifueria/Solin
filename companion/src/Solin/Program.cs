@@ -229,6 +229,7 @@ namespace Solin.Companion
             sprite.TeleportStarted += delegate { flourish.Shatter(sprite.ScreenCentre, sprite.BodySize); };
             sprite.Landed += delegate
             {
+                if (sprite.QuietLanding) { sprite.QuietLanding = false; sprite.Jitter(0.7); return; }
                 sprite.Jitter(0.25);
                 flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
                 if (agentState == "done") flourish.Burst(sprite.ScreenCentre, sprite.BodySize, ArtLibrary.CutIn(pick.NextDouble() < 0.5 ? "grin" : "laugh"), avoid: TextRects());
@@ -406,6 +407,21 @@ namespace Solin.Companion
                 }
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SKY") == "1")
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[sky] started " + Stargaze(asked: true)), TimeSpan.FromSeconds(3));
+                string awayTo = Environment.GetEnvironmentVariable("SOLIN_DEBUG_AWAY_TO");
+                if (!string.IsNullOrEmpty(awayTo))
+                {
+                    // Carrying check: off to another desktop (the first listed that is not on screen), then back as after a swipe.
+                    DispatcherTimer.RunOnce(() =>
+                    {
+                        ulong active = Spaces.ActiveSpace(), away = 0;
+                        foreach (string part in awayTo.Split(',')) if (ulong.TryParse(part, out ulong id) && id != active) { away = id; break; }
+                        Console.WriteLine("[space] active " + active + " on it " + Spaces.OnActiveSpace(sprite) + "; sending to " + away);
+                        Spaces.MoveTo(sprite, away);
+                        DispatcherTimer.RunOnce(() => Console.WriteLine("[space] sent away, on active " + Spaces.OnActiveSpace(sprite)), TimeSpan.FromMilliseconds(300));
+                    }, TimeSpan.FromSeconds(4));
+                    DispatcherTimer.RunOnce(() => { FollowToDesktop(); Console.WriteLine("[space] after follow, on active " + Spaces.OnActiveSpace(sprite)); }, TimeSpan.FromSeconds(6));
+                    DispatcherTimer.RunOnce(() => Console.WriteLine("[space] landed? clip " + sprite.ShownClip?.Title + " pos " + sprite.Position), TimeSpan.FromSeconds(8.5));
+                }
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_TALK") == "1")
                 {
                     // Talking and typing checks: her mouth flags every two seconds, and the quick line opened and checked for the keyboard.
@@ -504,7 +520,7 @@ namespace Solin.Companion
                     tray.Icon = new WindowIcon(icon);
                 NativeMenu menu = new NativeMenu();
                 NativeMenuItem show = new NativeMenuItem("Hide Solin");
-                show.Click += delegate { hidden = !hidden; if (hidden) { sprite.Hide(); bubble.Hide(); pill.Clear(); card.Dismiss(); } else sprite.Show(); show.Header = hidden ? "Show Solin" : "Hide Solin"; };
+                show.Click += delegate { hidden = !hidden; if (hidden) { sprite.Hide(); bubble.Hide(); pill.Clear(); card.Dismiss(); } else { sprite.Show(); Spaces.ToActiveSpace(sprite); } show.Header = hidden ? "Show Solin" : "Hide Solin"; };
                 NativeMenuItem bring = new NativeMenuItem("Bring here");
                 bring.Click += delegate { settingsActionBring(); };
                 NativeMenuItem awayTray = new NativeMenuItem("Put away / Bring out");
@@ -529,7 +545,7 @@ namespace Solin.Companion
             Screen screen = sprite.Screens.Primary;
             if (screen == null) return;
             PixelRect area = screen.WorkingArea;
-            if (hidden) { hidden = false; sprite.Show(); }
+            if (hidden) { hidden = false; sprite.Show(); Spaces.ToActiveSpace(sprite); }
             sfx.Play("zap");
             sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
         }
@@ -557,17 +573,32 @@ namespace Solin.Companion
             if (swiped && (DateTime.Now - lastSpaceHop).TotalSeconds > 0.6)
             {
                 lastSpaceHop = DateTime.Now;
+                FollowToDesktop();
                 KeepInFront();
-                if (!hidden && !sprite.Asleep && !sprite.Seated)
-                {
-                    sprite.HideForEntrance();
-                    sfx.Play("zap");
-                    flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
-                    DispatcherTimer.RunOnce(() => { sprite.Arrive(0.55); sprite.Jitter(0.3); }, TimeSpan.FromMilliseconds(160));
-                }
             }
             // Every few seconds as well: the flags back on if anything reset them, and her windows to the front of their level.
             if ((DateTime.Now - lastFront).TotalSeconds > 4) KeepInFront();
+        }
+
+        // After a swipe: her body was left on the old desktop (out of sight), so it is carried over still gone, then she
+        // arrives like a teleport: reassembling over the glitch with the beam, or now and then just glitching in.
+        private void FollowToDesktop()
+        {
+            bool showing = !hidden && maskMode == null && sprite.IsVisible;
+            if (!showing) return;
+            sprite.HideForEntrance();
+            Spaces.ToActiveSpace(sprite, how => { if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SPACES") == "1") Console.WriteLine("[space] " + DateTime.Now.ToString("HH:mm:ss.fff") + " carried: " + how); });
+            if (sprite.Asleep) { sprite.Arrive(0.6); return; }
+            Screen screen = sprite.Screens.ScreenFromPoint(sprite.ScreenCentre) ?? sprite.Screens.Primary;
+            PixelRect area = screen?.WorkingArea ?? new PixelRect(0, 0, 1200, 800);
+            // Standing on the floor where she was; off a window seat she comes down to the floor below it; sometimes somewhere new.
+            int x = sprite.ScreenCentre.X;
+            bool onFloor = !sprite.Seated && !sprite.Floating;
+            PixelPoint target = onFloor && pick.NextDouble() < 0.65 ? sprite.Position
+                : sprite.StandingAt(new PixelPoint(pick.NextDouble() < 0.5 ? x : area.X + (int)(area.Width * (0.15 + pick.NextDouble() * 0.7)), area.Bottom));
+            bool quiet = pick.NextDouble() < 0.3;
+            sfx.Play(quiet ? "buzz" : "zap");
+            sprite.TeleportIn(target, quiet);
         }
 
         // Her body first, then the windows that belong over her, so a card or a box is never hidden behind her.
@@ -689,6 +720,7 @@ namespace Solin.Companion
             sprite.Position = sprite.StandingAt(new PixelPoint(at.X, at.Y + Px(sprite.Height * 0.45)));
             sprite.HideForEntrance();
             sprite.Show();
+            Spaces.ToActiveSpace(sprite);
             if (sprite.Asleep) sprite.Wake();
             sfx.Play("zap");
             flourish.Beam(sprite.ScreenCentre, sprite.BodySize);
