@@ -33,6 +33,7 @@ namespace Solin.Companion
         {
             hand = handPoint; target = targetRect;
             canvas.Label = label;
+            if (Debug) Console.WriteLine("[point] start " + label + " " + DateTime.Now.ToString("HH:mm:ss.fff"));
             if (!Fit()) return;
             if (withBolt) canvas.Bolt(0.7);
             if (!IsVisible) Show();
@@ -42,13 +43,18 @@ namespace Solin.Companion
         // Told where the target is each tick, so she can turn toward it; null when pointing stops.
         internal Action<int?> Aiming;
 
-        internal void Stop() { frames.Stop(); Hide(); Aiming?.Invoke(null); }
+        internal static readonly bool Debug = Environment.GetEnvironmentVariable("SOLIN_DEBUG_POINT") == "1";
+        internal void Stop()
+        {
+            if (Debug && IsVisible) Console.WriteLine("[point] stop " + DateTime.Now.ToString("HH:mm:ss.fff") + "\n" + Environment.StackTrace);
+            frames.Stop(); Hide(); Aiming?.Invoke(null);
+        }
 
         // Sizes the window to cover hand and target with a margin, and hands the canvas their local coordinates.
         private bool Fit()
         {
             PixelRect? t = target?.Invoke();
-            if (hand == null || t == null) { Stop(); return false; }
+            if (hand == null || t == null) { if (Debug) Console.WriteLine("[point] no target"); Stop(); return false; }
             PixelPoint h = hand();
             PixelRect box = t.Value;
             Aiming?.Invoke(box.Center.X);
@@ -82,6 +88,13 @@ namespace Solin.Companion
             double t = clock.Elapsed.TotalSeconds;
             // The nearest point on the target's edge to her hand.
             Point aim = new Point(Math.Clamp(Hand.X, Target.Left, Target.Right), Math.Clamp(Hand.Y, Target.Top, Target.Bottom));
+            if (Target.Contains(Hand))
+            {
+                // Her hand is over the window: aim at its nearest edge instead, so there is a line to draw.
+                double l = Hand.X - Target.Left, r = Target.Right - Hand.X, tp = Hand.Y - Target.Top, b = Target.Bottom - Hand.Y;
+                double m = Math.Min(Math.Min(l, r), Math.Min(tp, b));
+                aim = m == l ? new Point(Target.Left, Hand.Y) : m == r ? new Point(Target.Right, Hand.Y) : m == tp ? new Point(Hand.X, Target.Top) : new Point(Hand.X, Target.Bottom);
+            }
             if (t < BoltUntil)
             {
                 // Jagged lightning from hand to window, redrawn every frame so it crackles: a red core with violet and white edges.

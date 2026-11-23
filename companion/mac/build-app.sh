@@ -32,6 +32,8 @@ if [ "${1:-}" = "--install" ]; then
   dest="$HOME/Applications/Solin.app"
   mkdir -p "$HOME/Applications"
   pkill -f "Solin.app/Contents/MacOS/Solin.Companion" 2>/dev/null || true
+  # She reuses a backend that is already up, so stop it too or the new server code never runs.
+  pkill -f "server.companion_api" 2>/dev/null || true
   rm -rf "$dest"
   cp -R "$app" "$dest"
   echo "installed $dest"

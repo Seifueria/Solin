@@ -317,6 +317,8 @@ namespace Solin.Companion
             };
             vitalsTimer.Tick += async delegate { await vitals.Poll(); };
             Tray();
+            // She turns to the star so the trail and bolt leave the hand on its side.
+            sky.Aiming = x => sprite.AimX = x;
             sky.Zapped += delegate { sfx.Play("zap"); sprite.Jitter(0.3); sprite.React("jolt"); };
             mask.Clicked += delegate { FromMask(); };
             emote.Finished += delegate { if (emoteHid) { emoteHid = false; sprite.Arrive(0.35); } };
@@ -594,7 +596,8 @@ namespace Solin.Companion
             (string title, string line) = Tour[tourStep];
             card.Show("hello", "SYNC", Card.Violet, title, line, null, tourStep == Tour.Length - 1 ? "GOT IT" : "NEXT");
             // The last card points at her menu-bar icon, if it can be found.
-            if (tourStep == Tour.Length - 1 && sprite.MenuBarItem().HasValue) pointer.Point(() => sprite.HandScreen, () => sprite.MenuBarItem(), true, "MY ICON");
+            // With the menu bar hidden the icon can't be found, so she points at the top right where the bar comes down.
+            if (tourStep == Tour.Length - 1) pointer.Point(() => sprite.HandScreen, () => sprite.MenuBarItem() ?? MenuBarCorner(), true, sprite.MenuBarItem().HasValue ? "MY ICON" : "MENU BAR");
             else pointer.Stop();
         }
 
@@ -683,6 +686,51 @@ namespace Solin.Companion
         }
 
         // She looks up: constellations, a star, a trail from her hand, then a zap. Only when nothing else is going on.
+        // Feet just outside a window's left or right edge (whichever has more room), level with the cursor; null if neither has room.
+        private PixelPoint? Beside(PixelRect home, PixelPoint? cursor)
+        {
+            Screen screen = sprite.Screens.ScreenFromPoint(home.Center) ?? sprite.Screens.Primary;
+            if (screen == null) return null;
+            PixelRect area = screen.WorkingArea;
+            int need = Px(sprite.BodySize * 0.55);
+            int roomRight = area.Right - home.Right, roomLeft = home.X - area.X;
+            if (Math.Max(roomRight, roomLeft) < need) return null;
+            int x = roomRight >= roomLeft ? home.Right + Math.Min(roomRight / 2, Px(sprite.BodySize * 0.4)) : home.X - Math.Min(roomLeft / 2, Px(sprite.BodySize * 0.4));
+            int y = Math.Clamp((cursor?.Y ?? home.Center.Y) + Px(sprite.BodySize * 0.5), home.Y + Px(sprite.BodySize), Math.Max(home.Y + Px(sprite.BodySize), home.Bottom));
+            return new PixelPoint(x, y);
+        }
+
+        // Whether her body is off the window, on the same screen as it.
+        private bool Clear(PixelRect home)
+        {
+            PixelPoint c = sprite.ScreenCentre;
+            int r = Px(sprite.BodySize * 0.18);
+            PixelRect her = new PixelRect(c.X - r, c.Y - r * 2, r * 2, r * 4);
+            Screen mine = sprite.Screens.ScreenFromPoint(c), theirs = sprite.Screens.ScreenFromPoint(home.Center);
+            return mine != null && mine == theirs && !her.Intersects(home);
+        }
+
+        // Feet in the bottom corner of the screen on the window's roomier side, if she fits there off the window.
+        private PixelPoint? Far(PixelRect home)
+        {
+            Screen screen = sprite.Screens.ScreenFromPoint(home.Center) ?? sprite.Screens.Primary;
+            if (screen == null) return null;
+            PixelRect area = screen.WorkingArea;
+            int need = Px(sprite.BodySize * 0.55), half = Px(sprite.Width / 2);
+            int roomRight = area.Right - home.Right, roomLeft = home.X - area.X, roomBelow = area.Bottom - home.Bottom;
+            if (roomBelow >= Px(sprite.BodySize))
+                return new PixelPoint(pick.NextDouble() < 0.5 ? area.X + half : area.Right - half, area.Bottom);
+            if (Math.Max(roomRight, roomLeft) < need) return null;
+            return new PixelPoint(roomRight >= roomLeft ? area.Right - half : area.X + half, area.Bottom);
+        }
+
+        private PixelRect? MenuBarCorner()
+        {
+            Screen screen = sprite.Screens.Primary;
+            if (screen == null) return null;
+            return new PixelRect(screen.Bounds.Right - Px(260), screen.Bounds.Y, Px(160), Px(24));
+        }
+
         private bool Stargaze(bool asked = false)
         {
             bool busy = hidden || thinking || sprite.Asleep || sky.Running || bubble.IsVisible || card.IsVisible || (agentState == "working" || agentState == "needs_you");
@@ -832,6 +880,7 @@ namespace Solin.Companion
         private void Agent(string state, string detail, string statsLine = null)
         {
             bool fresh = state != agentState;
+            if (PointerWindow.Debug) Console.WriteLine("[agent] " + state + " fresh=" + fresh + " mask=" + maskMode + " home=" + sprite.WindowOf(ClaudeHomes) + " detail=" + detail);
             agentState = state;
             if (maskMode != null && state != "needs_you") { mask.Watching = false; if (state != "done") return; }
             agentSeen = DateTime.Now;
@@ -841,6 +890,12 @@ namespace Solin.Companion
                 case "working":
                     pill.Say(string.IsNullOrEmpty(detail) ? "claude is working" : detail);
                     if (fresh) { sprite.React("dip"); card.Dismiss(); pointer.Stop(); }
+                    // A new message to Claude: a quick point at the window it went to.
+                    if (fresh && detail == "reading what you asked" && sprite.WindowOf(ClaudeHomes).HasValue && !hidden)
+                    {
+                        pointer.Point(() => sprite.HandScreen, () => sprite.WindowOf(ClaudeHomes), false);
+                        DispatcherTimer.RunOnce(() => { if (agentState != "needs_you") pointer.Stop(); }, TimeSpan.FromSeconds(3));
+                    }
                     // Running a command or going on the web: sparks off her fingers.
                     if (detail != null && (detail.StartsWith("bash") || detail.StartsWith("webfetch") || detail.StartsWith("websearch") || detail.StartsWith("edit") || detail.StartsWith("write")))
                     {
@@ -861,9 +916,17 @@ namespace Solin.Companion
                         if (eyes != null) DispatcherTimer.RunOnce(() => flourish.Burst(sprite.ScreenCentre, sprite.BodySize, eyes, rays: false), TimeSpan.FromSeconds(1.4));
                         PixelRect? home = sprite.WindowOf(ClaudeHomes);
                         if (home.HasValue) DispatcherTimer.RunOnce(() => { if (agentState == "needs_you") pointer.Point(() => sprite.HandScreen, () => sprite.WindowOf(ClaudeHomes)); }, TimeSpan.FromSeconds(1.3));
-                        // Next to the cursor, so the question is where you are looking.
+                        // Beside Claude's window, level with your cursor, so she can point at it; next to the cursor if there's no room.
                         PixelPoint? at = Mouse.Position(sprite.Screens.Primary?.Scaling ?? 1);
-                        if (at.HasValue) { sfx.Play("zap"); sprite.Teleport(sprite.StandingAt(new PixelPoint(at.Value.X + Px(90), at.Value.Y + Px(40)))); }
+                        // Already clear of the window: usually she stays and points from where she is, for a long arrow.
+                        // Otherwise often a far corner on the roomier side rather than right against the window.
+                        bool clear = home.HasValue && Clear(home.Value);
+                        bool stay = clear && pick.NextDouble() < 0.75;
+                        PixelPoint? beside = stay || !home.HasValue ? null : pick.NextDouble() < 0.6 ? Far(home.Value) ?? Beside(home.Value, at) : Beside(home.Value, at);
+                        if (PointerWindow.Debug) Console.WriteLine("[place] at " + sprite.ScreenCentre + " clear=" + clear + " stay=" + stay + " to " + beside);
+                        if (stay) { }
+                        else if (beside.HasValue) { sfx.Play("zap"); sprite.Teleport(sprite.StandingAt(beside.Value)); }
+                        else if (at.HasValue) { sfx.Play("zap"); sprite.Teleport(sprite.StandingAt(new PixelPoint(at.Value.X + Px(90), at.Value.Y + Px(40)))); }
                         sprite.React("jolt");
                         bristle.Start();
                     }
@@ -875,13 +938,25 @@ namespace Solin.Companion
                     if (fresh)
                     {
                         sfx.Play("chime");
-                        // Centre of the screen for the victory lap; the dip on landing is her bow.
+                        // Where she takes the news: sometimes the middle of the screen for a victory lap, sometimes onto a
+                        // window or a random spot, sometimes she just says it where she is. The dip on landing is her bow.
                         Screen screen = sprite.Screens.Primary;
-                        if (screen != null)
+                        double roll = pick.NextDouble();
+                        if (screen != null && !hidden && !sprite.Asleep)
                         {
                             PixelRect area = screen.WorkingArea;
-                            sfx.Play("zap");
-                            sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
+                            if (roll < 0.35)
+                            {
+                                sfx.Play("zap");
+                                sprite.Teleport(sprite.StandingAt(new PixelPoint(area.X + area.Width / 2, area.Y + area.Height / 2 + Px(sprite.Height / 2))));
+                            }
+                            else if (roll < 0.55 && sprite.TeleportToLedge(lie: false)) sfx.Play("zap");
+                            else if (roll < 0.75)
+                            {
+                                sfx.Play("zap");
+                                int x = area.X + (int)(area.Width * (0.15 + pick.NextDouble() * 0.7)), y = area.Y + (int)(area.Height * (0.45 + pick.NextDouble() * 0.5));
+                                sprite.Teleport(sprite.StandingAt(new PixelPoint(x, y)));
+                            }
                         }
                         card.Show(agentProject, "DONE", Card.Green, Pick(DoneLines), detail == "done" ? null : detail, statsLine, null, 14);
                     }
