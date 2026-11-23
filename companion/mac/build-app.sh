@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds companion/dist/Solin.app: a self-contained, ad-hoc signed background app for this Mac.
+# Builds companion/dist/Solin.app: a self-contained background app for this Mac, signed with the local certificate from
+# mac/make-signing-cert.sh when it is there (so macOS remembers the permissions you give her), ad-hoc otherwise.
 #   mac/build-app.sh            build only
 #   mac/build-app.sh --install  build, copy to ~/Applications/Solin.app and start it
 set -euo pipefail
@@ -25,7 +26,14 @@ cat > "$app/Contents/Resources/solin-home.json" <<JSON
 { "repo": "$repo", "python": "$python", "path": "$PATH:/opt/homebrew/bin:/usr/local/bin" }
 JSON
 
-codesign --force --deep -s - "$app" >/dev/null 2>&1
+identity="Solin Local Signing"
+if security find-identity -p codesigning 2>/dev/null | grep -q "\"$identity\""; then
+  codesign --force --deep -s "$identity" "$app" 2>/dev/null
+  echo "signed with $identity"
+else
+  codesign --force --deep -s - "$app" >/dev/null 2>&1
+  echo "signed ad-hoc (run mac/make-signing-cert.sh once so permissions survive rebuilds)"
+fi
 echo "built $app"
 
 if [ "${1:-}" = "--install" ]; then
