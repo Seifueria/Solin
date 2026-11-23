@@ -13,6 +13,15 @@ namespace Solin.Companion
 
         internal static string LastError;
 
+        [System.Runtime.InteropServices.DllImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")] private static extern bool CGPreflightScreenCaptureAccess();
+        [System.Runtime.InteropServices.DllImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")] private static extern bool CGRequestScreenCaptureAccess();
+
+        // Whether macOS lets Solin itself capture the screen right now.
+        internal static bool Allowed() { try { return OperatingSystem.IsMacOS() && CGPreflightScreenCaptureAccess(); } catch (Exception) { return false; } }
+
+        // Asks macOS for the permission in Solin's own name, which also lists her in System Settings › Screen Recording.
+        internal static bool Request() { try { return OperatingSystem.IsMacOS() && CGRequestScreenCaptureAccess(); } catch (Exception) { return false; } }
+
         // Path to a JPEG of the main display, or null (with LastError set) when macOS has not given her permission.
         internal static async Task<string> Capture()
         {
