@@ -162,11 +162,24 @@ namespace Solin.Companion
 
         internal void Open(PixelPoint at)
         {
+            // Kept on the screen it opens on, above the dock.
+            Screen screen = Screens.ScreenFromPoint(at) ?? Screens.Primary;
+            if (screen != null)
+            {
+                PixelRect area = screen.WorkingArea;
+                double scale = screen.Scaling;
+                int wide = (int)(370 * scale), tall = (int)((Tall + 8) * scale);
+                at = new PixelPoint(Math.Clamp(at.X, area.X, Math.Max(area.X, area.Right - wide)), Math.Clamp(at.Y, area.Y, Math.Max(area.Y, area.Bottom - tall)));
+            }
             Position = at;
             openedAt = DateTime.Now;
             Show();
+            // She runs in the background, so the app has to be brought forward for the box to take the keyboard.
+            Spaces.TakeKeyboard(this);
             Activate();
             box.Focus();
+            // Activation can land a moment late; once more, if it has not.
+            DispatcherTimer.RunOnce(() => { if (IsVisible) { Spaces.TakeKeyboard(this); box.Focus(); } }, TimeSpan.FromMilliseconds(150));
         }
     }
 
@@ -222,14 +235,19 @@ namespace Solin.Companion
                 if (shown >= full.Length)
                 {
                     typing.Stop();
-                    Speaking?.Invoke(false);
+                    Quiet();
                     linger.Interval = TimeSpan.FromSeconds(Math.Clamp(2 + full.Length / 18.0, 3, 14));
                     linger.Start();
                 }
             };
             linger.Tick += delegate { linger.Stop(); Hide(); };
             follow.Tick += delegate { if (IsVisible) Place(); else follow.Stop(); };
+            // Hidden in the middle of a line (put away, a teleport, a new card): the mouth stops with it.
+            PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e) { if (e.Property == IsVisibleProperty && !IsVisible) { typing.Stop(); Quiet(); } };
         }
+
+        private bool speaking;
+        private void Quiet() { if (!speaking) return; speaking = false; Speaking?.Invoke(false); }
 
         // Called when she moves, so the bubble stays over her head.
         internal void Reposition() { if (IsVisible) Place(); }
@@ -247,7 +265,7 @@ namespace Solin.Companion
             Place();
             Show();
             follow.Start();
-            Speaking?.Invoke(true);
+            if (!speaking) { speaking = true; Speaking?.Invoke(true); }
             typing.Start();
         }
 
@@ -280,10 +298,22 @@ namespace Solin.Companion
             row.Children.Add(new Border { Background = new SolidColorBrush(Color.FromRgb(255, 33, 82)), CornerRadius = new CornerRadius(2), Padding = new Thickness(5, 1), Child = chip, VerticalAlignment = VerticalAlignment.Center });
             row.Children.Add(text);
             Content = new Border { Background = TalkLook.Plate, BorderBrush = TalkLook.PlateEdge, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 4, 10, 4), Child = row, BoxShadow = TalkLook.Shadow, Margin = new Thickness(8, 4, 8, 14) };
-            linger.Tick += delegate { linger.Stop(); Hide(); };
-            // Follows her every few frames while shown, so teleports, walks and drags never leave it behind.
-            follow.Tick += delegate { if (IsVisible) Reposition(); else follow.Stop(); };
+            linger.Tick += delegate { linger.Stop(); wanted = false; Hide(); };
+            // Follows her every few frames while wanted, so teleports, walks and drags never leave it behind; while
+            // something bigger is talking (a card, her bubble) it steps aside and comes back after if it is still current.
+            follow.Tick += delegate
+            {
+                if (!wanted) { Hide(); follow.Stop(); return; }
+                bool held = Hold?.Invoke() ?? false;
+                if (held && IsVisible) Hide();
+                else if (!held && !IsVisible) Show();
+                if (IsVisible) Reposition();
+            };
         }
+
+        // True while a bigger text box is showing, so only one thing talks at a time.
+        internal Func<bool> Hold;
+        private bool wanted;
 
         internal void Follow(Func<PixelPoint> anchorPoint) { anchor = anchorPoint; }
 
@@ -293,13 +323,13 @@ namespace Solin.Companion
             text.Text = line;
             chip.Text = who;
             linger.Stop();
-            Show();
-            Reposition();
+            wanted = true;
+            if (!(Hold?.Invoke() ?? false)) { Show(); Reposition(); } else Hide();
             follow.Start();
             if (seconds > 0) { linger.Interval = TimeSpan.FromSeconds(seconds); linger.Start(); }
         }
 
-        internal void Clear() { linger.Stop(); follow.Stop(); Hide(); }
+        internal void Clear() { linger.Stop(); follow.Stop(); wanted = false; Hide(); }
 
         internal void Reposition()
         {

@@ -18,7 +18,8 @@ STYLE = """Write Solin's visible reply aloud:
 - Use casual acronyms/shorthand naturally
 - Include audio tags like [pause], [soft sigh], [teasing]
 - Keep continuity with past memory
-- Randomness should feel natural to Solin's personality (teasing, calm, sarcastic)"""
+- Randomness should feel natural to Solin's personality (teasing, calm, sarcastic)
+- Keep it short: one or two sentences, about 30 words at most, unless they ask for detail, steps or a list"""
 
 
 def mood_of(text):
@@ -51,15 +52,38 @@ def visible_messages(preprompt, mem, user_input, internal, mood, small=False, co
     extra = ("\n" + context) if context else ""
     if not small:
         system = f"{preprompt}\n[Internal context: {internal}]\nSolin currently feels: {mood}{extra}\n\n{STYLE}"
-        return system, history(mem) + [{"role": "user", "content": user_input}]
+        nudge = "" if wants_detail(user_input) else "\n\n(Answer in one or two short sentences.)"
+        return system, history(mem) + [{"role": "user", "content": user_input + nudge}]
     # Small-model layout.
     system = f"CHARACTER SHEET\n{preprompt}\n\nSTYLE\n{STYLE}"
     ack = {"role": "assistant", "content": "[calm] Got it. I'm Solin. I'll stay in character and keep it short."}
-    reminder = f"\n\n(Stay as Solin. You feel {mood}. {context} Private thought: {internal} Reply in one to three short lines.)"
+    reminder = f"\n\n(Stay as Solin. You feel {mood}. {context} Private thought: {internal} Reply in one or two short sentences.)"
     msgs = [{"role": "user", "content": "Read your character sheet and acknowledge in character."}, ack]
     msgs += history(mem, limit=12)
     msgs.append({"role": "user", "content": user_input + reminder})
     return system, msgs
+
+
+DETAIL = re.compile(r"\b(explain|in detail|step[- ]by[- ]step|steps|list|how do i|how to|walk me through|elaborate|tell me more|why)\b", re.IGNORECASE)
+
+
+def wants_detail(text):
+    return bool(DETAIL.search(text or ""))
+
+
+def brief(reply, asked):
+    """At most two sentences unless they asked for detail; audio tags ride along with the words they precede."""
+    if wants_detail(asked):
+        return reply
+    parts = re.split(r"(?<=[.!?…])\s+", reply.strip())
+    kept, sentences = [], 0
+    for part in parts:
+        kept.append(part)
+        if re.sub(r"\[[^\]]*\]", "", part).strip():
+            sentences += 1
+        if sentences >= 2:
+            break
+    return " ".join(kept).strip()
 
 
 def tidy(reply):
