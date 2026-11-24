@@ -287,8 +287,12 @@ namespace Solin.Companion
         internal PixelPoint Top { get { double scale = Screens.Primary?.Scaling ?? 1; return new PixelPoint(Position.X + (int)(Bounds.Width * scale / 2), Position.Y); } }
 
         // youSaid: your line this answers, shown above it; null for things she says on her own.
+        // The last line she said here, for checks.
+        internal string LastText { get; private set; }
+
         internal void Say(string reply, string mood, string youSaid = null)
         {
+            LastText = reply;
             full = TalkLook.Spoken(reply);
             shown = 0;
             said.Text = "";

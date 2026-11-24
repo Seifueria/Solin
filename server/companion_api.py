@@ -202,6 +202,9 @@ def chat():
     fresh = [line for at, line in recent_remarks if time.time() - at < 900]
     if fresh:
         context += "\nThings you said lately, glancing at their screen: " + " / ".join(fresh)
+    seen = [time.strftime("%H:%M", time.localtime(at)) + " " + note for at, note in recent_seen if time.time() - at < 1800]
+    if seen:
+        context += "\nWhat you've noticed them doing lately, from glances at their screen: " + "; ".join(seen)
     image = data.get("image")
     if image and not (isinstance(image, str) and os.path.isfile(image) and image.lower().endswith((".jpg", ".jpeg", ".png"))):
         image = None
@@ -219,7 +222,8 @@ def chat():
         reminders.add(due, what)
         context += f"\nThey just asked you to remind them to \"{what}\" {reminders.when(due)}. You've set it. Confirm in one short line, in your voice."
     try:
-        visible, internal, mood = brain.reply(text, context, image=image, hands=hands)
+        # look: they asked her to look. A picture sent without it is only so she knows what they're doing right now.
+        visible, internal, mood = brain.reply(text, context, image=image, hands=hands, looked=bool(data.get("look", True)))
         bond.note("chat")
     except Exception as failure:  # noqa: BLE001  a dead key or an empty account must not take her down
         error = f"{type(failure).__name__}: {failure}"
@@ -242,7 +246,7 @@ def chat():
         finally:
             speaking = False
             broadcast("speaking", {"on": False})
-    broadcast("reply", {"session_id": sid, "visible": visible, "mood": s["mood"]})
+    broadcast("reply", {"session_id": sid, "visible": visible, "mood": s["mood"], "origin": data.get("origin")})
     actions = list(getattr(brain, "last_actions", None) or []) if hands and not error else []
     return jsonify({"visible": visible, "internal": internal, "mood": s["mood"], "trust": s["trust"], "audio": audio, "error": error, "actions": actions})
 
@@ -405,6 +409,10 @@ def screens_line(data):
 
 # What she said glancing at the screen lately, so chat can follow on from it for a while. Not kept in her memory.
 recent_remarks = []
+# What she noticed them doing at each glance, said or not: (time, note), the last half hour or so. Not kept in her memory.
+recent_seen = []
+# She speaks up from a glance at most this often, in seconds; in between she only looks.
+REMARK_GAP = 240
 
 
 @app.post("/remark")
@@ -417,13 +425,20 @@ def remark():
         return jsonify({"error": "image required"}), 400
     sid, current = session(data.get("session_id"))
     context = bond.prompt_lines() + screens_line(data)
+    seen_before = [note for at, note in recent_seen if time.time() - at < 1800][-4:]
+    if seen_before:
+        context += "\nWhat you saw at your last glances, oldest first: " + "; ".join(seen_before)
+    quiet = bool(recent_remarks) and time.time() - recent_remarks[-1][0] < REMARK_GAP
     try:
-        visible, mood = brain.remark(image, context)
+        visible, mood, seen = brain.remark(image, context, quiet=quiet)
     except Exception as failure:  # noqa: BLE001
         print(f"[companion_api] remark failed: {failure}", file=sys.stderr)
         return jsonify({"visible": None})
+    if seen:
+        recent_seen.append((time.time(), seen))
+        del recent_seen[:-12]
     if not visible:
-        return jsonify({"visible": None})
+        return jsonify({"visible": None, "seen": seen})
     recent_remarks.append((time.time(), visible))
     del recent_remarks[:-5]
     s = set_mood(sid, mood if mood != "neutral" else current["mood"])
@@ -434,7 +449,7 @@ def remark():
             audio, _fresh = speech.speak(visible)
         except Exception as failure:  # noqa: BLE001
             print(f"[companion_api] voice: {failure}", file=sys.stderr)
-    return jsonify({"visible": visible, "mood": s["mood"], "audio": audio})
+    return jsonify({"visible": visible, "mood": s["mood"], "audio": audio, "seen": seen})
 
 
 def valid_shots(shots):
@@ -514,7 +529,7 @@ def ran():
         print(f"[companion_api] ran failed: {failure}", file=sys.stderr)
         visible, mood = ("done." if code == 0 else "that didn't work."), current["mood"]
     s = set_mood(sid, mood if mood != "neutral" else current["mood"])
-    broadcast("reply", {"session_id": sid, "visible": visible, "mood": s["mood"]})
+    broadcast("reply", {"session_id": sid, "visible": visible, "mood": s["mood"], "origin": data.get("origin")})
     return jsonify({"visible": visible, "mood": s["mood"], "audio": spoken(visible)})
 
 
