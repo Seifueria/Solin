@@ -46,7 +46,7 @@ namespace Solin.Companion
         private readonly CheckBox mini = new CheckBox { Content = Mono("Start in mini form", 11, TalkLook.Ink) };
         private readonly CheckBox login = new CheckBox { Content = Mono("Open at login", 11, TalkLook.Ink) };
         private readonly CheckBox mischief = new CheckBox { Content = Mono("Mischief: cursor tugs, fake hacks, hop chains", 11, TalkLook.Ink), IsChecked = true };
-        private readonly CheckBox hands = new CheckBox { Content = Mono("Hands: she opens, clicks and runs things (runs ask first)", 11, TalkLook.Ink), IsChecked = true };
+        private readonly CheckBox hands = new CheckBox { Content = Mono("Hands: she opens, clicks and runs things on her own", 11, TalkLook.Ink), IsChecked = true };
         private readonly CheckBox watch = new CheckBox { Content = Mono("Glance at my screen for things to say", 11, TalkLook.Ink), IsChecked = true };
         private readonly NumericUpDown watchEvery = new NumericUpDown { Minimum = 1, Maximum = 60, Increment = 1, Value = 2, Width = 120, FontFamily = TalkLook.Mono, FontSize = 11 };
         private readonly ComboBox entrance = new ComboBox { Width = 170, FontFamily = TalkLook.Mono, FontSize = 11, ItemsSource = EntranceNames, SelectedIndex = 1 };

@@ -17,8 +17,8 @@ using Avalonia.Threading;
 
 namespace Solin.Companion
 {
-    // Her hands on the Mac: opening things, clicking, and running commands. Nothing here decides to act; Program does, and
-    // a command (or anything that would run code, like a script file) only ever runs after you press Run on RunCard.
+    // Her hands on the Mac: opening things, clicking, and running commands. Nothing here decides to act; Program does. She has
+    // full control (Kaelen's call): commands run straight away, except the few that Risky catches, which wait for Run on RunCard.
     internal static class Hands
     {
         [StructLayout(LayoutKind.Sequential)]
@@ -58,13 +58,23 @@ namespace Solin.Companion
         }
 
         // How she would open something: what to show you, the arguments for /usr/bin/open, and whether it would run code
-        // (a script, an installer, an app from outside your Applications folders, an unusual link) and so needs your OK.
+        // (a script, an installer, an app from outside your Applications folders, an unusual link), which she says as she
+        // opens it.
         internal sealed class OpenPlan
         {
             internal string Shown;
             internal string[] Args;
-            internal bool Ask;
+            internal bool RunsCode;
         }
+
+        // Commands that delete things for good (rm skips the Trash) or can take the Mac down: the only ones that still wait for
+        // your Run. Everything else she runs straight away.
+        private static readonly System.Text.RegularExpressions.Regex RiskyCommand = new System.Text.RegularExpressions.Regex(
+            @"\bsudo\b|\b(rm|rmdir|unlink)\s|\b(srm|shred|mkfs\w*|diskutil|dd|fdisk|gpt|csrutil|nvram|shutdown|reboot|halt)\b"
+            + @"|>\s*/dev/r?disk|\b(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(ba|z)?sh\b|\bgit\s+(reset\s+--hard|clean\s+-\w*f|push\s+(-f\b|--force))"
+            + @"|:\(\)\s*\{|\bkill(all)?\s+-9\s+-1|\blaunchctl\s+(unload|remove|bootout)|\btmutil\s+delete|\bch(mod|own)\s+-R\b|\bfind\b.*\s-delete\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        internal static bool Risky(string command) { return RiskyCommand.IsMatch(command ?? ""); }
 
         private static readonly string[] Runnable = { ".command", ".sh", ".zsh", ".bash", ".tool", ".pkg", ".mpkg", ".terminal", ".workflow", ".scpt", ".applescript", ".jar", ".py", ".rb", ".pl", ".js", ".shortcut" };
 
@@ -78,9 +88,9 @@ namespace Solin.Companion
             if (what.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || what.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
                 || what.StartsWith("x-apple.systempreferences:", StringComparison.OrdinalIgnoreCase))
                 return new OpenPlan { Shown = what, Args = new[] { what } };
-            // Any other kind of link can start anything at all: asks first.
+            // Any other kind of link can start anything at all.
             if (System.Text.RegularExpressions.Regex.IsMatch(what, @"^[A-Za-z][A-Za-z0-9+.\-]*:") && !what.StartsWith("/") && !what.StartsWith("~"))
-                return new OpenPlan { Shown = "open '" + what + "'", Args = new[] { what }, Ask = true };
+                return new OpenPlan { Shown = "'" + what + "'", Args = new[] { what }, RunsCode = true };
             if (what.StartsWith("~")) what = home + what.Substring(1);
             if (what.StartsWith("/"))
             {
@@ -100,7 +110,7 @@ namespace Solin.Companion
                     string ext = Path.GetExtension(path).ToLowerInvariant();
                     ask = Array.IndexOf(Runnable, ext) >= 0 || IsExecutable(path);
                 }
-                return new OpenPlan { Shown = ask ? "open '" + path + "'" : path.Replace(home, "~"), Args = new[] { path }, Ask = ask };
+                return new OpenPlan { Shown = path.Replace(home, "~"), Args = new[] { path }, RunsCode = ask };
             }
             // Otherwise an app by name: straight away (open says so when there is no such app).
             return new OpenPlan { Shown = what, Args = new[] { "-a", what } };
@@ -190,7 +200,7 @@ namespace Solin.Companion
         }
     }
 
-    // Her ask before running anything: the exact command in her terminal plate, and RUN / NO. Says no by itself after a minute.
+    // Her ask before running a risky command: the exact command in her terminal plate, and RUN / NO. Says no by itself after a minute.
     // Only one at a time; a new ask answers the old one no.
     internal sealed class RunCard : Window
     {

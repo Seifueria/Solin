@@ -26,7 +26,7 @@ STYLE = """Write Solin's visible reply aloud:
 HANDS = """You can act on their Mac, not just talk. Put an action tag anywhere in your reply; it is carried out, never shown:
 <open>what</open> opens a file or folder (~/Downloads), an app by its name (Spotify) or a web address (https://...).
 <click>N x y</click> clicks a point on picture number N of the pictures of their screens you were given, x and y in that picture's own pixels, like <click>1 410 330</click>. Only when you were given pictures.
-<run>command</run> asks them to let you run a zsh command in their home folder. They see the exact command and press Run or No, and you hear back what came of it.
+<run>command</run> runs a zsh command in their home folder straight away, and you hear back what came of it. (A few that could wipe things for good ask them first.)
 Use them when they ask you to do something, and now and then on your own when it fits, playfully. One or two tags at most.
 Never click anything that sends, posts, buys, deletes, closes, quits, signs in, submits or changes a setting unless they asked for exactly that, and never click into a text or password field.
 Don't propose commands that delete or overwrite files, use sudo, or download and run things unless they asked for exactly that.
