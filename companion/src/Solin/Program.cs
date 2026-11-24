@@ -115,7 +115,7 @@ namespace Solin.Companion
         // Her hands: opening, clicking, running (running always waits for your Run). Off in Settings turns all of it off.
         private RunCard runCard;
         private bool handsOn = true;
-        // Opening, clicking or running on her own, from a glance: not more often than this.
+        // Opening, clicking or running on her own, from a glance: not more often than every 2 minutes.
         private DateTime nextOwnHands = DateTime.MinValue;
         private bool clickPermissionAsked, clickPermissionCard;
         private static readonly (string title, string line)[] Tour =
@@ -1102,7 +1102,7 @@ namespace Solin.Companion
             bool busy = hidden || maskMode != null || thinking || runCard.Waiting || sprite.Asleep || bubble.IsVisible || (card.IsVisible && !forced) || emote.Running || possess.Running
                 || sky.Running || wake.IsVisible || grab.IsVisible || typer.IsVisible || (chat.IsVisible && chat.IsActive) || (!forced && (agentState == "working" || agentState == "needs_you"));
             if (rush && busy) Console.WriteLine("[idle] busy");
-            if (busy || (!rush && pick.NextDouble() > 0.45 + sprite.Wanderlust * 0.5)) return;
+            if (busy || (!rush && pick.NextDouble() > 0.45 + (mischief ? 0.15 : 0) + sprite.Wanderlust * 0.5)) return;
             int hour = now.Hour;
             bool night = hour >= 20 || hour < 6;
             System.Collections.Generic.List<(double weight, string what, Func<bool> act)> options = new System.Collections.Generic.List<(double, string, Func<bool>)>
@@ -1113,10 +1113,11 @@ namespace Solin.Companion
                 (2.0, "seat", () => { bool ok = sprite.TeleportToLedge(lie: pick.NextDouble() < 0.4); if (ok) sfx.Play("zap"); return ok; }),
                 (2.0, "hop", HopSomewhere),
                 (sprite.Screens.All.Count > 1 ? 2.6 : 0, "screens", HopScreens),
-                (mischief ? 2.0 : 0, "chain", HopChain),
-                (mischief ? 1.0 : 0, "tug", TugCursor),
-                (mischief ? 2.6 : 0, "infect", () => Infect()),
-                (mischief ? 2.4 : 0, "zapwin", ZapWindow),
+                (mischief ? 2.8 : 0, "chain", HopChain),
+                (mischief ? 2.0 : 0, "tug", TugCursor),
+                (mischief ? 3.2 : 0, "infect", () => Infect()),
+                (mischief ? 3.0 : 0, "zapwin", ZapWindow),
+                (mischief && handsOn && Hands.CanMove() ? 2.2 : 0, "shove", ShoveSomething),
                 (1.0, "eye", IdleEye),
                 (sprite.Seated ? 1.5 : 0, "lie", () => { if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); return true; }),
                 (0.8, "nap", () => { sprite.Sleep(); napUntil = now.AddSeconds(60 + pick.NextDouble() * 120); return sprite.Asleep; }),
@@ -1733,7 +1734,7 @@ namespace Solin.Companion
         {
             foreach ((string kind, string what) in actions)
             {
-                if (kind != "open" && kind != "click" && kind != "run")
+                if (kind != "open" && kind != "click" && kind != "run" && kind != "shove")
                 {
                     bool did = false;
                     try { did = Antic(kind, what, shots); } catch (Exception e) { Console.WriteLine("[antic] " + kind + " failed: " + e.Message); }
@@ -1742,10 +1743,10 @@ namespace Solin.Companion
                     continue;
                 }
                 if (!handsOn) continue;
-                if (own)
+                if (own && kind != "shove")
                 {
                     if (DateTime.Now < nextOwnHands && Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") != "1") { Console.WriteLine("[hands] " + kind + " skipped, too soon after the last"); continue; }
-                    nextOwnHands = DateTime.Now.AddMinutes(5);
+                    nextOwnHands = DateTime.Now.AddMinutes(2);
                 }
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] " + kind + " " + what + (own ? " (own)" : ""));
                 // Testing: say what she would do and do none of it.
@@ -1770,6 +1771,7 @@ namespace Solin.Companion
                         case "open": await OpenFor(what); break;
                         case "click": await ClickFor(what, shots, own); break;
                         case "run": await RunFor(what); break;
+                        case "shove": { Spot spot = sprite.FrontSpotOf(what); if (spot != null) await Shove(spot); break; }
                     }
                 }
                 catch (Exception e) { Console.WriteLine("[hands] " + kind + " failed: " + e.Message); }
@@ -1814,7 +1816,12 @@ namespace Solin.Companion
                     return lines.Count > 0 && Infect(lines.ToArray());
                 }
                 case "hop":
+                    if (what.IndexOf("chain", StringComparison.OrdinalIgnoreCase) >= 0) return HopChain();
                     return what.IndexOf("other", StringComparison.OrdinalIgnoreCase) >= 0 && sprite.Screens.All.Count > 1 ? HopScreens() : HopSomewhere();
+                case "tug":
+                    return mischief && TugCursor();
+                case "eye":
+                    return !wake.IsVisible && IdleEye();
                 case "emote":
                     return PlayEmote(what.IndexOf("chair", StringComparison.OrdinalIgnoreCase) >= 0 ? "chair" : "heart", asked: true);
             }
@@ -1849,7 +1856,51 @@ namespace Solin.Companion
             return true;
         }
 
-        // Opens a file, folder, app or page straight away; anything that would run code waits for your Run.
+        // Mischief: she kicks a window aside a little and it slides back a moment later. Only while you've paused the mouse,
+        // never mid-drag, and only when macOS lets her move windows (Accessibility).
+        private bool shoving;
+
+        private bool ShoveSomething()
+        {
+            Spot spot = sprite.FrontSpotOf(null);
+            if (spot == null || shoving) return false;
+            _ = Shove(spot);
+            return true;
+        }
+
+        private async Task<bool> Shove(Spot spot)
+        {
+            if (shoving || !Hands.CanMove()) return false;
+            double? idle = Mouse.IdleSeconds();
+            if (!idle.HasValue || idle.Value < 1.5 || Mouse.ButtonDown()) return false;
+            shoving = true;
+            try
+            {
+                PixelRect from = spot.Bounds;
+                TimeSpan wait = ComeOver(from);
+                if (wait > TimeSpan.Zero) await Task.Delay(wait);
+                double scale = sprite.Screens.Primary?.Scaling ?? 1;
+                // Away from her, a hand's width or two, and a little up or down.
+                int dir = from.Center.X >= sprite.ScreenCentre.X ? 1 : -1;
+                PixelPoint to = new PixelPoint(from.X + dir * Px(50 + pick.Next(70)), from.Y + Px(pick.Next(-10, 11)));
+                sfx.Play("zap");
+                sprite.React("jolt");
+                sprite.Jitter(0.3);
+                frameFx.Race(from, 0.7);
+                PixelRect? moved = await Hands.MoveWindow(spot.Pid, from, to, scale);
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] shove " + spot.Owner + " " + from + " -> " + (moved?.ToString() ?? "couldn't"));
+                if (!moved.HasValue) return false;
+                await Task.Delay(1400 + pick.Next(900));
+                sfx.Play("buzz");
+                // Back where it was, unless you have moved it yourself since.
+                PixelRect? back = await Hands.MoveWindow(spot.Pid, moved.Value, from.Position, scale);
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] shoved back " + (back?.ToString() ?? "left it"));
+                return true;
+            }
+            finally { shoving = false; }
+        }
+
+        // Opens a file, folder, app or page straight away; anything that would run code she says as she opens it.
         private async Task OpenFor(string what)
         {
             Hands.OpenPlan plan = Hands.PlanOpen(what);

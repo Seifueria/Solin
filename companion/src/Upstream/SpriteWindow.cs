@@ -350,6 +350,16 @@ namespace Solin.Companion.Upstream
             return spot.Owner != null && spot.Owner.IndexOf(app.Trim(), StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        // The front window of an app whose name contains this (any app's when it is empty), not a sliver. Solin's addition.
+        internal Spot FrontSpotOf(string app)
+        {
+            if (desk == null) return null;
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            foreach (Spot spot in desk.Windows())
+                if ((string.IsNullOrWhiteSpace(app) || OwnedBy(spot, app)) && spot.Bounds.Width > Px(200) && spot.Bounds.Height > Px(120)) return spot;
+            return null;
+        }
+
         // The windows on screen of an app whose name contains this, front to back. Solin's addition.
         internal System.Collections.Generic.List<PixelRect> WindowsOf(string app)
         {
