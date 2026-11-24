@@ -68,6 +68,69 @@ namespace Solin.Companion
             return file;
         }
 
+        // One screen's picture, for her to click by: where that screen is (in the same pixels as window positions) and the
+        // picture's own size, which her click coordinates are given in.
+        internal sealed class Shot
+        {
+            internal string Path;
+            internal Avalonia.PixelRect Area;
+            internal int W, H;
+        }
+
+        // A picture of each screen (areas: the screens, in window-position pixels), each at most 1280 across, so it reaches
+        // her brain without being shrunk again and her click lands where she meant; the screen with the cursor first.
+        // Empty, with LastError set, when macOS has not given her permission. scaling maps window pixels to CoreGraphics points.
+        internal static async Task<List<Shot>> CaptureEach(IReadOnlyList<Avalonia.PixelRect> areas, Avalonia.PixelPoint? cursor, double scaling)
+        {
+            LastError = null;
+            List<Shot> shots = new List<Shot>();
+            if (!OperatingSystem.IsMacOS()) { LastError = "not on a Mac"; return shots; }
+            Directory.CreateDirectory(Folder);
+            List<Avalonia.PixelRect> order = new List<Avalonia.PixelRect>(areas);
+            int first = cursor.HasValue ? order.FindIndex(a => a.Contains(cursor.Value)) : -1;
+            if (first > 0) { Avalonia.PixelRect c = order[first]; order.RemoveAt(first); order.Insert(0, c); }
+            string stamp = DateTime.Now.ToString("HHmmssfff");
+            for (int i = 0; i < order.Count && i < 4; i++)
+            {
+                Avalonia.PixelRect area = order[i];
+                string file = System.IO.Path.Combine(Folder, "hand-" + stamp + "-" + i + ".jpg");
+                double s = scaling <= 0 ? 1 : scaling;
+                // -R takes points; written joined to the flag so a negative x or y is not read as another option.
+                string rect = (int)Math.Round(area.X / s) + "," + (int)Math.Round(area.Y / s) + "," + (int)Math.Round(area.Width / s) + "," + (int)Math.Round(area.Height / s);
+                (int code, string err) = await Run("/usr/sbin/screencapture", "-x -t jpg -R" + rect + " \"" + file + "\"");
+                if (!File.Exists(file) || new FileInfo(file).Length == 0)
+                {
+                    Forget(file);
+                    LastError = string.IsNullOrWhiteSpace(err) ? "screen capture refused" : err.Trim();
+                    continue;
+                }
+                await Run("/usr/bin/sips", "-Z 1280 \"" + file + "\"");
+                (int w, int h) = await Size(file);
+                if (w <= 0 || h <= 0) { Forget(file); continue; }
+                shots.Add(new Shot { Path = file, Area = area, W = w, H = h });
+            }
+            return shots;
+        }
+
+        // Where a point on one of those pictures is on screen, in window-position pixels.
+        internal static Avalonia.PixelPoint OnScreen(Shot shot, double x, double y)
+        {
+            return new Avalonia.PixelPoint(shot.Area.X + (int)Math.Round(Math.Clamp(x, 0, shot.W - 1) * shot.Area.Width / (double)shot.W),
+                                           shot.Area.Y + (int)Math.Round(Math.Clamp(y, 0, shot.H - 1) * shot.Area.Height / (double)shot.H));
+        }
+
+        private static async Task<(int, int)> Size(string file)
+        {
+            ProcessStartInfo info = new ProcessStartInfo("/usr/bin/sips", "-g pixelWidth -g pixelHeight \"" + file + "\"") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            using (Process p = Process.Start(info))
+            {
+                string text = await p.StandardOutput.ReadToEndAsync();
+                await p.WaitForExitAsync();
+                System.Text.RegularExpressions.Match w = System.Text.RegularExpressions.Regex.Match(text, @"pixelWidth:\s*(\d+)"), h = System.Text.RegularExpressions.Regex.Match(text, @"pixelHeight:\s*(\d+)");
+                return (w.Success ? int.Parse(w.Groups[1].Value) : 0, h.Success ? int.Parse(h.Groups[1].Value) : 0);
+            }
+        }
+
         // Draws the pictures left to right with a thin dark gap between them, into one PNG.
         private static void Join(List<string> files, string output)
         {

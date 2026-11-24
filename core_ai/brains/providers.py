@@ -19,11 +19,18 @@ def _media_type(path):
     return "image/png" if path.lower().endswith(".png") else "image/jpeg"
 
 
+def _paths(image):
+    """One screenshot path, a list of them (one per screen, in order), or nothing: always a list."""
+    if not image:
+        return []
+    return [image] if isinstance(image, str) else [p for p in image if p]
+
+
 class Provider:
     name = "base"
     model = None
 
-    # image: a path to a screenshot the newest user message should be read with, or None.
+    # image: a path to a screenshot the newest user message should be read with, a list of them in order, or None.
     def complete(self, system, messages, max_tokens=400, image=None):
         raise NotImplementedError
 
@@ -40,8 +47,10 @@ class OpenAICompat(Provider):
     def complete(self, system, messages, max_tokens=400, image=None):
         messages = [dict(m) for m in messages]
         if image:
-            url = "data:%s;base64,%s" % (_media_type(image), _image_b64(image))
-            messages[-1]["content"] = [{"type": "text", "text": messages[-1]["content"]}, {"type": "image_url", "image_url": {"url": url}}]
+            parts = [{"type": "text", "text": messages[-1]["content"]}]
+            for path in _paths(image):
+                parts.append({"type": "image_url", "image_url": {"url": "data:%s;base64,%s" % (_media_type(path), _image_b64(path))}})
+            messages[-1]["content"] = parts
         body = {"model": self.model, "messages": [{"role": "system", "content": system}] + messages, "max_tokens": max_tokens, "temperature": 0.8}
         r = requests.post(self.base_url + "/chat/completions", json=body, timeout=120,
                           headers={"Authorization": "Bearer " + self.key, "Content-Type": "application/json"})
@@ -61,7 +70,7 @@ class Ollama(Provider):
     def complete(self, system, messages, max_tokens=400, image=None):
         messages = [dict(m) for m in messages]
         if image:
-            messages[-1]["images"] = [_image_b64(image)]
+            messages[-1]["images"] = [_image_b64(path) for path in _paths(image)]
         body = {"model": self.model, "stream": False, "think": False,
                 "messages": [{"role": "system", "content": system}] + messages,
                 "options": {"num_predict": max_tokens, "temperature": 0.8}}
@@ -81,8 +90,8 @@ class Anthropic(Provider):
     def complete(self, system, messages, max_tokens=400, image=None):
         messages = [dict(m) for m in messages]
         if image:
-            messages[-1]["content"] = [{"type": "image", "source": {"type": "base64", "media_type": _media_type(image), "data": _image_b64(image)}},
-                                       {"type": "text", "text": messages[-1]["content"]}]
+            messages[-1]["content"] = [{"type": "image", "source": {"type": "base64", "media_type": _media_type(path), "data": _image_b64(path)}}
+                                       for path in _paths(image)] + [{"type": "text", "text": messages[-1]["content"]}]
         body = {"model": self.model, "system": system, "messages": messages, "max_tokens": max_tokens, "temperature": 0.8}
         r = requests.post(self.base_url + "/v1/messages", json=body, timeout=120,
                           headers={"x-api-key": self.key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"})
@@ -106,13 +115,18 @@ class ClaudeCli(Provider):
         for m in messages[:-1]:
             transcript.append(("User: " if m["role"] == "user" else "Solin: ") + m["content"])
         last = messages[-1]["content"]
-        if image:
-            last = f"[Their screenshot is at {image}. Read that image first, then answer.] " + last
+        pictures = _paths(image)
+        if len(pictures) == 1:
+            last = f"[Their screenshot is at {pictures[0]}. Read that image first, then answer.] " + last
+        elif pictures:
+            listed = "; ".join(f"picture {n} is {path}" for n, path in enumerate(pictures, 1))
+            last = f"[Pictures of their screens: {listed}. Read every one first, then answer.] " + last
         prompt = "\n".join(transcript + ["User: " + last, "Solin:"])
         # No tools, no saved session and no user settings: Solin's line in, Claude's line out, nothing else.
         # Not --bare: that mode skips the stored claude.ai login and answers "Not logged in".
         # With a screenshot, only the Read tool, and only for the folder the screenshot is in.
-        tools = ["--tools", "Read", "--allowedTools", "Read", "--add-dir", os.path.dirname(image)] if image else ["--tools", ""]
+        folders = sorted({os.path.dirname(path) for path in pictures})
+        tools = ["--tools", "Read", "--allowedTools", "Read"] + [a for d in folders for a in ("--add-dir", d)] if pictures else ["--tools", ""]
         args = [self.path, "-p", "--output-format", "json", "--system-prompt", system, "--model", self.model,
                 *tools, "--no-session-persistence", "--setting-sources", ""]
         # Only the call to the model leaves the Mac: Claude Code's own usage logs (sent to Datadog), error reports and

@@ -55,7 +55,29 @@ namespace Solin.Companion
         internal readonly struct Reply
         {
             internal readonly string Visible, Mood, Audio, Internal;
-            internal Reply(string visible, string mood, string audio, string internalThought) { Visible = visible; Mood = mood; Audio = audio; Internal = internalThought; }
+            // What she wants to do with her hands: ("open" | "click" | "run", what), in order. Empty when nothing.
+            internal readonly IReadOnlyList<(string kind, string what)> Actions;
+            internal Reply(string visible, string mood, string audio, string internalThought, IReadOnlyList<(string, string)> actions = null)
+            {
+                Visible = visible; Mood = mood; Audio = audio; Internal = internalThought;
+                Actions = actions ?? Array.Empty<(string, string)>();
+            }
+        }
+
+        private static List<(string, string)> ActionsOf(JsonElement root)
+        {
+            List<(string, string)> list = new List<(string, string)>();
+            if (root.TryGetProperty("actions", out JsonElement acts) && acts.ValueKind == JsonValueKind.Array)
+                foreach (JsonElement a in acts.EnumerateArray())
+                    if (a.ValueKind == JsonValueKind.Object && a.TryGetProperty("kind", out JsonElement k) && a.TryGetProperty("what", out JsonElement w)
+                        && k.ValueKind == JsonValueKind.String && w.ValueKind == JsonValueKind.String)
+                        list.Add((k.GetString(), w.GetString()));
+            return list;
+        }
+
+        private static object ShotsBody(List<ScreenShot.Shot> shots)
+        {
+            return shots?.ConvertAll(s => (object)new { path = s.Path, w = s.W, h = s.H });
         }
 
         // speak null leaves it to the backend's configured default.
@@ -72,18 +94,46 @@ namespace Solin.Companion
             }
         }
 
-        // screens: how many screens the image shows side by side.
-        internal async Task<Reply> Chat(string text, bool? speak = null, string image = null, int screens = 1)
+        // screens: how many screens the image shows side by side. hands: she may ask to open, click or run things; shots:
+        // one picture per screen for clicking, the screen with the mouse first (sent instead of image).
+        internal async Task<Reply> Chat(string text, bool? speak = null, string image = null, int screens = 1, bool hands = false, List<ScreenShot.Shot> shots = null)
         {
+            object body = ShotsBody(shots);
             string json = speak.HasValue
-                ? await Post("/chat", new { session_id = sessionId, text, speak = speak.Value, image, screens })
-                : await Post("/chat", new { session_id = sessionId, text, image, screens });
+                ? await Post("/chat", new { session_id = sessionId, text, speak = speak.Value, image, screens, hands, shots = body })
+                : await Post("/chat", new { session_id = sessionId, text, image, screens, hands, shots = body });
             using (JsonDocument doc = JsonDocument.Parse(json))
             {
                 JsonElement root = doc.RootElement;
                 string audio = root.TryGetProperty("audio", out JsonElement a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
                 string inner = root.TryGetProperty("internal", out JsonElement i) && i.ValueKind == JsonValueKind.String ? i.GetString() : null;
-                return new Reply(root.GetProperty("visible").GetString(), root.GetProperty("mood").GetString(), audio, inner);
+                return new Reply(root.GetProperty("visible").GetString(), root.GetProperty("mood").GetString(), audio, inner, ActionsOf(root));
+            }
+        }
+
+        // Bored, she looks at your screens (one picture each) and maybe does one thing on her own: her line and at most one
+        // action, or null. The pictures are the caller's to delete.
+        internal async Task<Reply?> Meddle(List<ScreenShot.Shot> shots)
+        {
+            using (JsonDocument doc = JsonDocument.Parse(await Post("/meddle", new { session_id = sessionId, shots = ShotsBody(shots) })))
+            {
+                JsonElement root = doc.RootElement;
+                List<(string, string)> actions = ActionsOf(root);
+                bool said = root.TryGetProperty("visible", out JsonElement v) && v.ValueKind == JsonValueKind.String;
+                if (!said && actions.Count == 0) return null;
+                string audio = root.TryGetProperty("audio", out JsonElement a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
+                return new Reply(said ? v.GetString() : "", root.TryGetProperty("mood", out JsonElement m) && m.ValueKind == JsonValueKind.String ? m.GetString() : "neutral", audio, null, actions);
+            }
+        }
+
+        // A command you let her run has finished: her line on what came of it.
+        internal async Task<Reply> Ran(string command, int code, string output)
+        {
+            using (JsonDocument doc = JsonDocument.Parse(await Post("/ran", new { session_id = sessionId, command, code, output })))
+            {
+                JsonElement root = doc.RootElement;
+                string audio = root.TryGetProperty("audio", out JsonElement a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
+                return new Reply(root.GetProperty("visible").GetString(), root.GetProperty("mood").GetString(), audio, null);
             }
         }
 
