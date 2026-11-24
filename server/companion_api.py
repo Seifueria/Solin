@@ -207,13 +207,19 @@ def chat():
         image = None
     if image:
         context += screens_line(data)
+    # Hands: she may ask to open, click or run things; the companion carries them out (running only with their OK).
+    hands = bool(data.get("hands"))
+    shots = valid_shots(data.get("shots")) if hands else []
+    if shots:
+        image = [shot["path"] for shot in shots]
+        context += shots_line(shots)
     reminder = reminders.parse(text)
     if reminder:
         due, what = reminder
         reminders.add(due, what)
         context += f"\nThey just asked you to remind them to \"{what}\" {reminders.when(due)}. You've set it. Confirm in one short line, in your voice."
     try:
-        visible, internal, mood = brain.reply(text, context, image=image)
+        visible, internal, mood = brain.reply(text, context, image=image, hands=hands)
         bond.note("chat")
     except Exception as failure:  # noqa: BLE001  a dead key or an empty account must not take her down
         error = f"{type(failure).__name__}: {failure}"
@@ -237,7 +243,8 @@ def chat():
             speaking = False
             broadcast("speaking", {"on": False})
     broadcast("reply", {"session_id": sid, "visible": visible, "mood": s["mood"]})
-    return jsonify({"visible": visible, "internal": internal, "mood": s["mood"], "trust": s["trust"], "audio": audio, "error": error})
+    actions = list(getattr(brain, "last_actions", None) or []) if hands and not error else []
+    return jsonify({"visible": visible, "internal": internal, "mood": s["mood"], "trust": s["trust"], "audio": audio, "error": error, "actions": actions})
 
 
 CONFIG_PATH = os.path.join(ROOT, "data", "config.json")
@@ -428,6 +435,87 @@ def remark():
         except Exception as failure:  # noqa: BLE001
             print(f"[companion_api] voice: {failure}", file=sys.stderr)
     return jsonify({"visible": visible, "mood": s["mood"], "audio": audio})
+
+
+def valid_shots(shots):
+    """Pictures of single screens from the companion, for clicking: [{"path", "w", "h"}], the screen with the mouse first.
+    Only image files in the companion's own screenshot folder; at most four."""
+    out = []
+    for shot in shots if isinstance(shots, list) else []:
+        if not isinstance(shot, dict):
+            continue
+        path = shot.get("path")
+        try:
+            w, h = int(shot.get("w")), int(shot.get("h"))
+        except (TypeError, ValueError):
+            continue
+        if (isinstance(path, str) and path.lower().endswith((".jpg", ".jpeg", ".png")) and os.path.isfile(path)
+                and os.path.basename(os.path.dirname(path)) == "solin-look" and w > 0 and h > 0):
+            out.append({"path": path, "w": w, "h": h})
+    return out[:4]
+
+
+def shots_line(shots):
+    sizes = "; ".join(f"picture {n} is {shot['w']} x {shot['h']} pixels" + (" (the screen their mouse is on)" if n == 1 else "")
+                      for n, shot in enumerate(shots, 1))
+    return (f"\nYou were given {len(shots)} picture{'s' if len(shots) > 1 else ''} of their screens, one per screen: {sizes}. "
+            "To click, write <click>N x y</click>: N the picture's number, x and y in that picture's own pixels.")
+
+
+def spoken(visible):
+    """Her voice for a line when it's on: the audio file, or None."""
+    if not voice_default() or not visible:
+        return None
+    try:
+        from core_ai import speech
+        audio, _fresh = speech.speak(visible)
+        return audio
+    except Exception as failure:  # noqa: BLE001
+        print(f"[companion_api] voice: {failure}", file=sys.stderr)
+        return None
+
+
+@app.post("/meddle")
+def meddle():
+    """Bored, she looks at their screens and maybe does one small thing on her own. Returns her line and at most one
+    action for the companion to carry out. The pictures are the companion's to delete."""
+    data = request.get_json(silent=True) or {}
+    shots = valid_shots(data.get("shots"))
+    if not shots:
+        return jsonify({"error": "shots required"}), 400
+    sid, current = session(data.get("session_id"))
+    try:
+        line, mood, actions = brain.meddle([shot["path"] for shot in shots], bond.prompt_lines() + shots_line(shots))
+    except Exception as failure:  # noqa: BLE001
+        print(f"[companion_api] meddle failed: {failure}", file=sys.stderr)
+        return jsonify({"visible": None, "actions": []})
+    if not line and not actions:
+        return jsonify({"visible": None, "actions": []})
+    s = set_mood(sid, mood if mood != "neutral" else current["mood"])
+    return jsonify({"visible": line or None, "mood": s["mood"], "audio": spoken(line), "actions": actions})
+
+
+@app.post("/ran")
+def ran():
+    """A command they let her run has finished (the companion ran it): her line on what came of it."""
+    data = request.get_json(silent=True) or {}
+    command = str(data.get("command") or "").strip()[:2000]
+    if not command:
+        return jsonify({"error": "command required"}), 400
+    try:
+        code = int(data.get("code"))
+    except (TypeError, ValueError):
+        code = -1
+    output = str(data.get("output") or "")[-4000:]
+    sid, current = session(data.get("session_id"))
+    try:
+        visible, mood = brain.ran(command, code, output, bond.prompt_lines())
+    except Exception as failure:  # noqa: BLE001
+        print(f"[companion_api] ran failed: {failure}", file=sys.stderr)
+        visible, mood = ("done." if code == 0 else "that didn't work."), current["mood"]
+    s = set_mood(sid, mood if mood != "neutral" else current["mood"])
+    broadcast("reply", {"session_id": sid, "visible": visible, "mood": s["mood"]})
+    return jsonify({"visible": visible, "mood": s["mood"], "audio": spoken(visible)})
 
 
 @app.post("/event")

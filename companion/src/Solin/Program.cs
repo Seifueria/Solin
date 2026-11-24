@@ -112,6 +112,12 @@ namespace Solin.Companion
         private readonly DispatcherTimer quiet = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         private int tourStep = -1;
         private bool lookPermissionAsked;
+        // Her hands: opening, clicking, running (running always waits for your Run). Off in Settings turns all of it off.
+        private RunCard runCard;
+        private bool handsOn = true;
+        private bool meddling;
+        private DateTime nextMeddle = DateTime.MinValue;
+        private bool clickPermissionAsked, clickPermissionCard;
         private static readonly (string title, string line)[] Tour =
         {
             ("Hey. I'm Solin.", "This is me on your desk. Drag me anywhere. Drop me on a window and I'll sit on it; let go over nothing and I'll float."),
@@ -159,6 +165,7 @@ namespace Solin.Companion
                 typer = new Typer();
                 talkPill = new TalkPill();
                 infect = new InfectWindow();
+                runCard = new RunCard();
                 // Debugging: each finished terminal kept as a picture, numbered.
                 string rootSnaps = Environment.GetEnvironmentVariable("SOLIN_DEBUG_SNAP");
                 if (!string.IsNullOrEmpty(rootSnaps)) { int snapped = 0; infect.Finished += () => Snap(infect, System.IO.Path.Combine(rootSnaps, "root-" + (++snapped) + ".png")); }
@@ -289,6 +296,7 @@ namespace Solin.Companion
                 Dispatcher.UIThread.Post(() => { agentProject = projectName ?? agentProject; Agent(state, detail, statsLine); });
             };
             card.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.02)));
+            runCard.Follow(() => new PixelPoint(sprite.Position.X + Px(sprite.Width / 2), sprite.Position.Y + Px(sprite.Height * 0.12)));
             card.Frame = () => (sprite.ShownClip, sprite.ShownCell, sprite.ShownMouthClip, sprite.ShownMouth);
             card.Still = () => ArtLibrary.Face(agentState == "done" ? "warm" : agentState == "needs_you" ? "curious" : agentState == "error" ? "annoyed" : mood.Mood);
             typer.Sent += delegate(string text) { chat.AddYou(text); _ = Ask(text); };
@@ -449,6 +457,7 @@ namespace Solin.Companion
             quiet.Start();
             card.Acknowledged += delegate
             {
+                if (clickPermissionCard) { clickPermissionCard = false; Hands.OpenClickPermission(); return; }
                 if (lookPermissionAsked) { lookPermissionAsked = false; ScreenShot.OpenPermissionPane(); return; }
                 NextTourCard();
             };
@@ -480,6 +489,60 @@ namespace Solin.Companion
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SKY") == "1")
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[sky] started " + Stargaze(asked: true)), TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") == "1") skyTimer.Interval = TimeSpan.FromSeconds(4);
+                string handsTest = Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS_TEST");
+                if (!string.IsNullOrEmpty(handsTest))
+                    DispatcherTimer.RunOnce(async () =>
+                    {
+                        // plan: how she would treat things she might open (nothing is opened).
+                        if (handsTest.Contains("plan"))
+                            foreach (string t in new[] { "~/Downloads", "Spotify", "https://example.com", "x-apple.systempreferences:com.apple.preference.security", "shortcuts://run-shortcut?name=x", "/Applications/Safari.app", "~/Downloads/thing.command", "/bin/ls", "~/nope-not-here", "~/Solin/companion/mac/build-app.sh", "~/Solin/README.md" })
+                            {
+                                Hands.OpenPlan plan = Hands.PlanOpen(t);
+                                Console.WriteLine("[hands] plan " + t + " -> " + (plan == null ? "missing" : (plan.Ask ? "ASK " : "now ") + plan.Shown + " [" + string.Join(" ", plan.Args) + "]"));
+                            }
+                        // run: one fixed, harmless command through the runner, and her line on it (no ask: the command is this one).
+                        if (handsTest.Contains("run"))
+                        {
+                            (int code, string output) = await Hands.Run("echo solin-run-ok; pwd; command -v brew; exit 3", TimeSpan.FromSeconds(20));
+                            Console.WriteLine("[hands] run code " + code + ": " + output.Replace("\n", " | "));
+                            (int code2, string output2) = await Hands.Run("sleep 5", TimeSpan.FromSeconds(1));
+                            Console.WriteLine("[hands] timeout code " + code2 + ": " + output2.Replace("\n", " | "));
+                            try { BackendClient.Reply r = await backend.Ran("echo solin-run-ok; pwd; command -v brew; exit 3", code, output); Console.WriteLine("[hands] ran said: " + r.Visible); }
+                            catch (Exception e) { Console.WriteLine("[hands] ran failed: " + e.Message); }
+                        }
+                        // card: her ask, kept as a picture, answered no by the test after a few seconds.
+                        if (handsTest.Contains("card"))
+                        {
+                            Task<bool> asked = runCard.Ask("du -sh ~/Downloads/* | sort -h | tail -5");
+                            DispatcherTimer.RunOnce(() =>
+                            {
+                                string snaps = Environment.GetEnvironmentVariable("SOLIN_DEBUG_SNAP");
+                                if (!string.IsNullOrEmpty(snaps)) Snap(runCard, System.IO.Path.Combine(snaps, "runcard.png"));
+                                Console.WriteLine("[hands] card at " + runCard.Position + " size " + runCard.Bounds.Size + " her head " + sprite.Position);
+                                runCard.Hide();
+                                Console.WriteLine("[hands] card hidden; answered " + (asked.IsCompleted ? asked.Result.ToString() : "not yet"));
+                            }, TimeSpan.FromSeconds(3));
+                        }
+                        // click: a test button in a window of her own, clicked the way she clicks things.
+                        if (handsTest.Contains("click"))
+                        {
+                            Window target = new Window { Width = 160, Height = 70, SystemDecorations = SystemDecorations.None, Topmost = true, ShowActivated = false, WindowStartupLocation = WindowStartupLocation.Manual };
+                            Button b = new Button { Content = "click me", HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch };
+                            int clicks = 0;
+                            b.Click += delegate { clicks++; Console.WriteLine("[hands] test button clicked"); };
+                            target.Content = b;
+                            Screen here = sprite.Screens.ScreenFromPoint(sprite.ScreenCentre) ?? sprite.Screens.Primary;
+                            target.Position = new PixelPoint(here.WorkingArea.X + Px(80), here.WorkingArea.Y + Px(120));
+                            target.Show();
+                            Spaces.Everywhere(target);
+                            await Task.Delay(800);
+                            Console.WriteLine("[hands] can click " + Hands.CanClick() + "; button at " + target.Position);
+                            await ClickAt(new PixelPoint(target.Position.X + Px(80), target.Position.Y + Px(35)), own: false);
+                            await Task.Delay(600);
+                            Console.WriteLine("[hands] clicks seen " + clicks);
+                            target.Close();
+                        }
+                    }, TimeSpan.FromSeconds(5));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_GLANCE") is "1" or "root")
                     DispatcherTimer.RunOnce(async () => { Console.WriteLine("[glance] looking; allowed " + ScreenShot.Allowed()); await Glance(now: true); Console.WriteLine("[glance] refused " + glanceRefused + " said: " + (bubble.IsVisible ? "yes" : "no") + " " + ScreenShot.LastError); }, TimeSpan.FromSeconds(6));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSE") == "1")
@@ -714,7 +777,7 @@ namespace Solin.Companion
         {
             lastFront = DateTime.Now;
             if (hidden) return;
-            foreach (Window w in new Window[] { sprite, emote, mask, player, wake, grab, possess, sky, flourish, frameFx, pointer, infect, talkPill, chat, settings, card, bubble, pill, typer })
+            foreach (Window w in new Window[] { sprite, emote, mask, player, wake, grab, possess, sky, flourish, frameFx, pointer, infect, talkPill, chat, settings, card, bubble, pill, typer, runCard })
             {
                 if (w == null) continue;
                 Spaces.Reassert(w);
@@ -906,7 +969,7 @@ namespace Solin.Companion
             if (napUntil.HasValue && now >= napUntil.Value) { napUntil = null; if (sprite.Asleep) { sprite.Wake(); sfx.Play("soft"); } return; }
             // Testing one action: a Claude session at work (the one running the test, usually) does not hold her back.
             bool forced = rush && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE_ONLY"));
-            bool busy = hidden || maskMode != null || thinking || sprite.Asleep || bubble.IsVisible || (card.IsVisible && !forced) || emote.Running || possess.Running
+            bool busy = hidden || maskMode != null || thinking || meddling || runCard.Waiting || sprite.Asleep || bubble.IsVisible || (card.IsVisible && !forced) || emote.Running || possess.Running
                 || sky.Running || wake.IsVisible || grab.IsVisible || typer.IsVisible || (chat.IsVisible && chat.IsActive) || (!forced && (agentState == "working" || agentState == "needs_you"));
             if (rush && busy) Console.WriteLine("[idle] busy");
             if (busy || (!rush && pick.NextDouble() > 0.45 + sprite.Wanderlust * 0.5)) return;
@@ -924,6 +987,7 @@ namespace Solin.Companion
                 (mischief ? 1.0 : 0, "tug", TugCursor),
                 (mischief ? 2.6 : 0, "infect", () => Infect()),
                 (mischief ? 2.4 : 0, "zapwin", ZapWindow),
+                (handsOn ? 1.4 : 0, "meddle", Meddle),
                 (1.0, "eye", IdleEye),
                 (sprite.Seated ? 1.5 : 0, "lie", () => { if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); return true; }),
                 (0.8, "nap", () => { sprite.Sleep(); napUntil = now.AddSeconds(60 + pick.NextDouble() * 120); return sprite.Asleep; }),
@@ -1053,7 +1117,7 @@ namespace Solin.Companion
         {
             if (!now && (!watchScreen || glanceRefused || DateTime.Now < nextGlance)) return;
             double? idle = Mouse.IdleSeconds();
-            bool busy = hidden || maskMode != null || thinking || sprite.Asleep || bubble.IsVisible || card.IsVisible || typer.IsVisible || agentState == "needs_you";
+            bool busy = hidden || maskMode != null || thinking || meddling || runCard.Waiting || sprite.Asleep || bubble.IsVisible || card.IsVisible || typer.IsVisible || agentState == "needs_you";
             if (!now && (busy || !idle.HasValue || idle.Value > 45)) return;
             nextGlance = DateTime.Now.AddMinutes(watchEvery * (0.7 + pick.NextDouble() * 0.6));
             string shot = await ScreenShot.Capture(sprite.Screens.All.Count);
@@ -1158,6 +1222,7 @@ namespace Solin.Companion
             if (c.TryGetProperty("sounds", out System.Text.Json.JsonElement so)) sfx.Level = so.GetDouble();
             if (c.TryGetProperty("wander", out System.Text.Json.JsonElement wa)) sprite.Wanderlust = wa.GetDouble();
             if (c.TryGetProperty("mischief", out System.Text.Json.JsonElement mi)) mischief = mi.ValueKind != System.Text.Json.JsonValueKind.False;
+            if (c.TryGetProperty("hands", out System.Text.Json.JsonElement ha)) handsOn = ha.ValueKind != System.Text.Json.JsonValueKind.False;
             if (c.TryGetProperty("watch_screen", out System.Text.Json.JsonElement ws)) watchScreen = ws.ValueKind != System.Text.Json.JsonValueKind.False;
             if (c.TryGetProperty("watch_every_min", out System.Text.Json.JsonElement we) && we.ValueKind == System.Text.Json.JsonValueKind.Number) watchEvery = Math.Max(1, we.GetDouble());
             if (c.TryGetProperty("sleep_after_min", out System.Text.Json.JsonElement sl)) SleepAfter = sl.GetDouble() * 60;
@@ -1414,6 +1479,10 @@ namespace Solin.Companion
             @"\b(look at|see|check|read)\b[^.?!]*\bscreen\b|\bwhat am i (doing|working on|looking at)\b|\bwhat do you see\b|\bwhat'?s on my screen\b",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
+        // Asking her to click something: with her hands on, she is given a picture of each screen to click by.
+        private static readonly System.Text.RegularExpressions.Regex ClickAsk = new System.Text.RegularExpressions.Regex(
+            @"\b(click|press|tap|hit|select|toggle|tick|untick|uncheck|choose)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
         private static readonly System.Text.RegularExpressions.Regex Affection = new System.Text.RegularExpressions.Regex(@"\blove (you|u)\b|<3|❤|\bily\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
         private async Task Ask(string text, bool look = false)
@@ -1422,10 +1491,29 @@ namespace Solin.Companion
             thinking = true;
             sprite.React("dip");
             string shot = null;
+            System.Collections.Generic.List<ScreenShot.Shot> shots = null;
             try
             {
                 chat.Thinking(true);
-                if (look || LookAsk.IsMatch(text))
+                bool looking = look || LookAsk.IsMatch(text);
+                if (handsOn && (looking || ClickAsk.IsMatch(text)))
+                {
+                    pill.Say("looking at your screen…", 0, "SOLIN");
+                    shots = await CaptureForHands();
+                    pill.Clear();
+                    if (shots.Count == 0)
+                    {
+                        ScreenShot.Request();
+                        thinking = false;
+                        chat.Thinking(false);
+                        card.Show("mac", "PERMISSION", Card.Red, "I can't see your screen yet.",
+                            "Turn Solin on in System Settings › Privacy & Security › Screen Recording, then quit and reopen me.", null, "OPEN SETTINGS", 30);
+                        lookPermissionAsked = true;
+                        return;
+                    }
+                    fx.Sparks(8);
+                }
+                else if (looking)
                 {
                     pill.Say("looking at your screen…", 0, "SOLIN");
                     shot = await ScreenShot.Capture(sprite.Screens.All.Count);
@@ -1442,7 +1530,8 @@ namespace Solin.Companion
                     }
                     fx.Sparks(8);
                 }
-                BackendClient.Reply reply = await backend.Chat(text, null, shot, shot == null ? 1 : ScreenShot.LastScreens);
+                BackendClient.Reply reply = await backend.Chat(text, null, shot, shot == null ? 1 : ScreenShot.LastScreens, handsOn, shots);
+                if (shots != null) foreach (ScreenShot.Shot s in shots) ScreenShot.Forget(s.Path);
                 thinking = false;
                 chat.Thinking(false);
                 mood.Set(reply.Mood, mood.Trust);
@@ -1451,6 +1540,7 @@ namespace Solin.Companion
                 string visible = reply.Visible, replyMood = reply.Mood, audio = reply.Audio;
                 if (replyMood == "warm" || replyMood == "teasing") sprite.Grin();
                 if (audio != null) _ = voice.Play(audio);
+                if (reply.Actions.Count > 0) _ = Act(reply.Actions, shots, own: false);
             }
             catch (Exception)
             {
@@ -1459,7 +1549,197 @@ namespace Solin.Companion
                 chat.AddHer("[offline] i can't reach my backend right now.", "neutral", null);
                 bubble.Say("[offline] i can't reach my backend right now.", "neutral");
             }
-            finally { ScreenShot.Forget(shot); }
+            finally
+            {
+                ScreenShot.Forget(shot);
+                if (shots != null) foreach (ScreenShot.Shot s in shots) ScreenShot.Forget(s.Path);
+            }
+        }
+
+        // A picture of each screen for her to click by, the one with your cursor first; empty without Screen Recording.
+        private Task<System.Collections.Generic.List<ScreenShot.Shot>> CaptureForHands()
+        {
+            double scale = sprite.Screens.Primary?.Scaling ?? 1;
+            System.Collections.Generic.List<PixelRect> areas = new System.Collections.Generic.List<PixelRect>();
+            foreach (Screen screen in sprite.Screens.All) areas.Add(screen.Bounds);
+            return ScreenShot.CaptureEach(areas, Mouse.Position(scale), scale);
+        }
+
+        // Does what she asked for, in order. own: she decided it herself, unasked (then a click waits for you to be still).
+        // shots: the pictures her clicks are measured on (only their places and sizes are needed; the files may be gone).
+        private async Task Act(System.Collections.Generic.IReadOnlyList<(string kind, string what)> actions, System.Collections.Generic.List<ScreenShot.Shot> shots, bool own)
+        {
+            foreach ((string kind, string what) in actions)
+            {
+                if (!handsOn) return;
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] " + kind + " " + what + (own ? " (own)" : ""));
+                // Testing: say what she would do and do none of it.
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS_DRY") == "1")
+                {
+                    if (kind == "click" && shots != null && shots.Count > 0)
+                    {
+                        System.Text.RegularExpressions.MatchCollection m = System.Text.RegularExpressions.Regex.Matches(what, @"-?\d+");
+                        if (m.Count >= 2)
+                        {
+                            int n = m.Count >= 3 ? int.Parse(m[m.Count - 3].Value) : 1;
+                            ScreenShot.Shot shot = shots[Math.Clamp(n, 1, shots.Count) - 1];
+                            Console.WriteLine("[hands] would click " + ScreenShot.OnScreen(shot, int.Parse(m[m.Count - 2].Value), int.Parse(m[m.Count - 1].Value)) + " on screen " + shot.Area + " (picture " + shot.W + "x" + shot.H + ")");
+                        }
+                    }
+                    continue;
+                }
+                try
+                {
+                    switch (kind)
+                    {
+                        case "open": await OpenFor(what); break;
+                        case "click": await ClickFor(what, shots, own); break;
+                        case "run": await RunFor(what); break;
+                    }
+                }
+                catch (Exception e) { Console.WriteLine("[hands] " + kind + " failed: " + e.Message); }
+            }
+        }
+
+        // Opens a file, folder, app or page straight away; anything that would run code waits for your Run.
+        private async Task OpenFor(string what)
+        {
+            Hands.OpenPlan plan = Hands.PlanOpen(what);
+            if (plan == null) { pill.Say("can't find " + what, 3, "SOLIN"); return; }
+            if (plan.Ask && !await runCard.Ask(plan.Shown, "WANTS TO OPEN")) { pill.Say("ok, leaving it.", 2.5, "SOLIN"); return; }
+            sfx.Play("zap");
+            sprite.Jitter(0.3);
+            fx.Sparks(6);
+            if (!await Hands.Open(plan)) pill.Say("couldn't open " + plan.Shown, 3, "SOLIN");
+        }
+
+        // "N x y" on picture N (or "x y" on the first): where that is on screen, then the click.
+        private async Task ClickFor(string what, System.Collections.Generic.List<ScreenShot.Shot> shots, bool own)
+        {
+            if (shots == null || shots.Count == 0) return;
+            System.Collections.Generic.List<double> numbers = new System.Collections.Generic.List<double>();
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(what ?? "", @"-?\d+(\.\d+)?"))
+                numbers.Add(double.Parse(m.Value, System.Globalization.CultureInfo.InvariantCulture));
+            if (numbers.Count < 2) return;
+            int n = numbers.Count >= 3 ? (int)numbers[numbers.Count - 3] : 1;
+            if (n < 1 || n > shots.Count) n = 1;
+            await ClickAt(ScreenShot.OnScreen(shots[n - 1], numbers[numbers.Count - 2], numbers[numbers.Count - 1]), own);
+        }
+
+        // She points at the spot with her arrow for a moment, then clicks it and puts your cursor back. Move the mouse (or
+        // hold a button) while she points and she leaves it. Needs Accessibility, which she asks for once.
+        private async Task ClickAt(PixelPoint target, bool own)
+        {
+            if (!Hands.CanClick())
+            {
+                if (!clickPermissionAsked)
+                {
+                    clickPermissionAsked = true;
+                    Hands.AskToClick();
+                    clickPermissionCard = true;
+                    card.Show("mac", "PERMISSION", Card.Red, "I can't click for you yet.", "Turn Solin on in System Settings › Privacy & Security › Accessibility.", null, "OPEN SETTINGS", 30);
+                }
+                else pill.Say("no clicking without Accessibility", 3, "SOLIN");
+                return;
+            }
+            double scale = sprite.Screens.Primary?.Scaling ?? 1;
+            if (own)
+            {
+                double? idle = Mouse.IdleSeconds();
+                if (!idle.HasValue || idle.Value < 2 || Mouse.ButtonDown()) return;
+            }
+            PixelPoint? before = Mouse.Position(scale);
+            sfx.Play("zap");
+            PixelRect spot = new PixelRect(target.X - Px(14), target.Y - Px(14), Px(28), Px(28));
+            pointer.Point(() => sprite.HandScreen, () => spot, true, "CLICK");
+            await Task.Delay(1300);
+            PixelPoint? now = Mouse.Position(scale);
+            bool yours = Mouse.ButtonDown() || (before.HasValue && now.HasValue && (Math.Abs(now.Value.X - before.Value.X) > Px(8) || Math.Abs(now.Value.Y - before.Value.Y) > Px(8)));
+            pointer.Stop();
+            if (yours)
+            {
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] left it: cursor " + before + " -> " + now + ", button down " + Mouse.ButtonDown());
+                pill.Say("fine, you do it.", 2.5, "SOLIN");
+                return;
+            }
+            if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] clicking " + target);
+            await Hands.Click(target, scale);
+            if (now.HasValue) Mouse.Warp(now.Value, scale);
+            sprite.React("dip");
+            fx.Sparks(5);
+        }
+
+        // A command: only after you press Run on her ask. Then she runs it (two minutes at most) and tells you what came of it.
+        private async Task RunFor(string command)
+        {
+            command = (command ?? "").Trim();
+            if (command.Length == 0) return;
+            sprite.React("dip");
+            if (!await runCard.Ask(command)) { pill.Say("ok, not running it.", 2.5, "SOLIN"); return; }
+            thinking = true;
+            chat.Thinking(true);
+            pill.Say("running…", 0, "SOLIN");
+            (int code, string output) = await Hands.Run(command, TimeSpan.FromSeconds(120));
+            pill.Clear();
+            if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] ran, code " + code + ": " + output.Replace("\n", " | "));
+            try
+            {
+                BackendClient.Reply reply = await backend.Ran(command, code, output);
+                thinking = false;
+                chat.Thinking(false);
+                chat.AddHer(reply.Visible, reply.Mood, null);
+                bubble.Say(reply.Visible, reply.Mood);
+                if (reply.Audio != null) _ = voice.Play(reply.Audio);
+            }
+            catch (Exception)
+            {
+                thinking = false;
+                chat.Thinking(false);
+                bubble.Say(code == 0 ? "done." : "that didn't work.", "neutral");
+            }
+        }
+
+        // Left alone, now and then she looks at your screens and does one small thing on her own: opens something, clicks
+        // something harmless, or asks to run something. Only while you are at the Mac, and not more than every 8 minutes or so.
+        private bool Meddle()
+        {
+            bool rush = Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") == "1";
+            if (!handsOn || meddling || (!rush && DateTime.Now < nextMeddle) || !ScreenShot.Allowed()) return false;
+            double? idle = Mouse.IdleSeconds();
+            if (!idle.HasValue || idle.Value > 300) return false;
+            meddling = true;
+            nextMeddle = DateTime.Now.AddMinutes(8 + pick.NextDouble() * 6);
+            _ = MeddleNow();
+            return true;
+        }
+
+        private async Task MeddleNow()
+        {
+            System.Collections.Generic.List<ScreenShot.Shot> shots = null;
+            try
+            {
+                shots = await CaptureForHands();
+                if (shots.Count == 0) return;
+                sprite.Flourish("look");
+                BackendClient.Reply? got = await backend.Meddle(shots);
+                foreach (ScreenShot.Shot s in shots) ScreenShot.Forget(s.Path);
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] meddle: " + (got.HasValue ? got.Value.Visible + " / " + got.Value.Actions.Count + " action(s)" : "nothing"));
+                if (!got.HasValue) return;
+                BackendClient.Reply r = got.Value;
+                if (!string.IsNullOrWhiteSpace(r.Visible) && !bubble.IsVisible && !card.IsVisible)
+                {
+                    bubble.Say(r.Visible, r.Mood);
+                    chat.AddHer(r.Visible, r.Mood, null);
+                    if (r.Audio != null) _ = voice.Play(r.Audio);
+                }
+                await Act(r.Actions, shots, own: true);
+            }
+            catch (Exception e) { Console.WriteLine("[hands] meddle failed: " + e.Message); }
+            finally
+            {
+                if (shots != null) foreach (ScreenShot.Shot s in shots) ScreenShot.Forget(s.Path);
+                meddling = false;
+            }
         }
     }
 }
