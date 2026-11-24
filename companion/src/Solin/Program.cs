@@ -1656,7 +1656,12 @@ namespace Solin.Companion
             PixelPoint? now = Mouse.Position(scale);
             bool yours = Mouse.ButtonDown() || (before.HasValue && now.HasValue && (Math.Abs(now.Value.X - before.Value.X) > Px(8) || Math.Abs(now.Value.Y - before.Value.Y) > Px(8)));
             pointer.Stop();
-            if (yours) { pill.Say("fine, you do it.", 2.5, "SOLIN"); return; }
+            if (yours)
+            {
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] left it: cursor " + before + " -> " + now + ", button down " + Mouse.ButtonDown());
+                pill.Say("fine, you do it.", 2.5, "SOLIN");
+                return;
+            }
             if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] clicking " + target);
             await Hands.Click(target, scale);
             if (now.HasValue) Mouse.Warp(now.Value, scale);
