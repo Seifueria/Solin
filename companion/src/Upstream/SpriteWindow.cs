@@ -447,7 +447,7 @@ namespace Solin.Companion.Upstream
             PixelRect area = screen.WorkingArea;
             int wide = Px(Width), tall = Px(Height);
             // Bottom centre of the work area, toes at the bottom edge.
-            Position = new PixelPoint(area.X + (area.Width - wide) / 2, area.Bottom - tall);
+            Position = new PixelPoint(area.X + (area.Width - wide) / 2, FloorOf(screen) - tall);
         }
 
         private int Px(double points)
@@ -540,8 +540,34 @@ namespace Solin.Companion.Upstream
         private bool NearFloor()
         {
             Screen screen = Screens.ScreenFromPoint(new PixelPoint(Position.X + Px(Width / 2), Position.Y + Px(Height) - 1)) ?? Screens.Primary;
-            return screen == null || Position.Y + Px(Height) > screen.WorkingArea.Bottom - Px(body.Size);
+            return screen == null || Position.Y + Px(Height) > FloorOf(screen) - Px(body.Size);
         }
+
+        // Her floor on a screen: the bottom of its work area, a little higher where that edge sits on top of another display,
+        // whose menu bar is just below it with nothing to stop the cursor running on up into her. Solin's addition.
+        internal int FloorOf(Screen screen)
+        {
+            PixelRect area = screen.WorkingArea;
+            if (area.Bottom < screen.Bounds.Bottom - 2) return area.Bottom;
+            foreach (Screen other in Screens.All)
+            {
+                PixelRect b = other.Bounds;
+                if (b.Equals(screen.Bounds)) continue;
+                if (Math.Abs(b.Y - screen.Bounds.Bottom) <= 2 && b.X < area.Right && b.Right > area.X) return area.Bottom - Px(EdgeGap);
+            }
+            return area.Bottom;
+        }
+        internal const double EdgeGap = 14;
+
+        // Whether a point on screen lands on her drawn art rather than the empty square around her, so clicks there can go
+        // through to whatever is underneath. Solin's addition.
+        internal bool OpaqueAt(PixelPoint p)
+        {
+            if (p.X < Position.X || p.Y < Position.Y || p.X >= Position.X + Px(Width) || p.Y >= Position.Y + Px(Height)) return false;
+            return body.Dissolve < 0.85 && arriveAt != double.MaxValue && body.Opaque(this.PointToClient(p));
+        }
+        // Pressed on or being dragged: keep her clicks while that lasts. Solin's addition.
+        internal bool Holding { get { return pressed || dragging; } }
 
         private void Sit(Spot spot)
         {
@@ -592,7 +618,7 @@ namespace Solin.Companion.Upstream
             {
                 PixelRect area = screen.WorkingArea;
                 x = Math.Clamp(x, area.X, Math.Max(area.X, area.Right - wide));
-                y = Math.Clamp(y, area.Y, Math.Max(area.Y, area.Bottom - tall));
+                y = Math.Clamp(y, area.Y, Math.Max(area.Y, FloorOf(screen) - tall));
             }
             return new PixelPoint(x, y);
         }
@@ -636,7 +662,7 @@ namespace Solin.Companion.Upstream
                     return;
                 }
             }
-            double floor = area.Bottom - tall;
+            double floor = FloorOf(screen) - tall;
             if (flyY >= floor)
             {
                 flyY = floor;
@@ -685,7 +711,7 @@ namespace Solin.Companion.Upstream
         {
             int hipX = Position.X + Hip.X, hipY = Position.Y + Hip.Y;
             Screen screen = Screens.ScreenFromPoint(new PixelPoint(hipX, hipY)) ?? Screens.Primary;
-            int floor = screen == null ? hipY + 4000 : screen.WorkingArea.Bottom;
+            int floor = screen == null ? hipY + 4000 : FloorOf(screen);
             return LedgeCrossed(hipX, hipY, floor) != null;
         }
 

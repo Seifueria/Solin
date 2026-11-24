@@ -446,6 +446,11 @@ namespace Solin.Companion
             noteTimer.Tick += delegate { if (sprite.Grooving && !hidden) fx.Notes(); };
             musicTimer.Start();
             scene.Tick += delegate { SceneCheck(); };
+            // Her window is a square, and macOS gives it every click inside it. So it lets clicks through except where the
+            // cursor is on her art (or while she is held), and whatever is beside or behind her gets them.
+            DispatcherTimer passClicks = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+            passClicks.Tick += delegate { PassClicks(); };
+            passClicks.Start();
             if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_LEVEL") == "1")
             {
                 DispatcherTimer probe = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -533,6 +538,59 @@ namespace Solin.Companion
                                 runCard.Hide();
                                 Console.WriteLine("[hands] card hidden; answered " + (asked.IsCompleted ? asked.Result.ToString() : "not yet"));
                             }, TimeSpan.FromSeconds(3));
+                        }
+                        // pass: a button under the empty edge of her window gets a click there; under her art it doesn't, she does.
+                        if (handsTest.Contains("pass"))
+                        {
+                            double scale = sprite.Screens.Primary?.Scaling ?? 1;
+                            Window target = new Window { Width = 160, Height = 70, SystemDecorations = SystemDecorations.None, Topmost = true, ShowActivated = false, WindowStartupLocation = WindowStartupLocation.Manual };
+                            Button b = new Button { Content = "behind her", HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch };
+                            int clicks = 0, pokes = 0;
+                            b.Click += delegate { clicks++; };
+                            Action poked = sprite.Poked;
+                            sprite.Poked = () => { pokes++; poked?.Invoke(); };
+                            target.Content = b;
+                            PixelPoint edge = new PixelPoint(sprite.Position.X + Px(14), sprite.ScreenCentre.Y);
+                            target.Position = new PixelPoint(edge.X - Px(80), edge.Y - Px(35));
+                            target.Show();
+                            Spaces.Everywhere(target);
+                            Spaces.Front(sprite);
+                            PixelPoint? was = Mouse.Position(scale);
+                            await Task.Delay(800);
+                            Console.WriteLine("[pass] empty edge " + edge + " on her art " + sprite.OpaqueAt(edge) + "; her window " + sprite.Position + "; button window " + target.Position + " " + target.Bounds.Size);
+                            if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_PASS") == "1")
+                            {
+                                // Control: the same click with her out of the way.
+                                PixelPoint home = sprite.Position;
+                                sprite.PutAt(new PixelPoint(home.X + Px(600), home.Y));
+                                await Task.Delay(300);
+                                Mouse.Warp(edge, scale);
+                                await Task.Delay(250);
+                                await Hands.Click(edge, scale);
+                                await Task.Delay(500);
+                                Console.WriteLine("[pass] control, her away: button clicks " + clicks);
+                                sprite.PutAt(home);
+                                Spaces.Front(sprite);
+                                await Task.Delay(400);
+                            }
+                            Mouse.Warp(edge, scale);
+                            await Task.Delay(250);
+                            await Hands.Click(edge, scale);
+                            await Task.Delay(500);
+                            Console.WriteLine("[pass] through her empty edge: button clicks " + clicks + ", pokes " + pokes);
+                            PixelPoint middle = sprite.ScreenCentre;
+                            target.Position = new PixelPoint(middle.X - Px(80), middle.Y - Px(35));
+                            Spaces.Front(sprite);
+                            await Task.Delay(500);
+                            Console.WriteLine("[pass] her middle " + middle + " on her art " + sprite.OpaqueAt(middle));
+                            Mouse.Warp(middle, scale);
+                            await Task.Delay(250);
+                            await Hands.Click(middle, scale);
+                            await Task.Delay(500);
+                            Console.WriteLine("[pass] on her: button clicks " + clicks + ", pokes " + pokes);
+                            if (was.HasValue) Mouse.Warp(was.Value, scale);
+                            sprite.Poked = poked;
+                            target.Close();
                         }
                         // click: a test button in a window of her own, clicked the way she clicks things.
                         if (handsTest.Contains("click"))
@@ -744,6 +802,18 @@ namespace Solin.Companion
 
         // Her window lives on every Space, so a swipe brings her along; this notices the swipe from the desktop's own number
         // and sells it as an arrival: she blinks out, the beam drops in front, and she reforms out of it.
+        private bool clicksThrough;
+
+        private void PassClicks()
+        {
+            PixelPoint? at = Mouse.Position(sprite.Screens.Primary?.Scaling ?? 1);
+            bool mine = sprite.Holding || (at.HasValue && sprite.IsVisible && sprite.OpaqueAt(at.Value));
+            if (clicksThrough == !mine) return;
+            clicksThrough = !mine;
+            Spaces.IgnoreMouse(sprite, clicksThrough);
+            if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_PASS") == "1") Console.WriteLine("[pass] clicks " + (clicksThrough ? "through" : "hers") + " at " + at);
+        }
+
         private void SceneCheck()
         {
             ulong space = Spaces.ActiveSpace();
@@ -770,7 +840,7 @@ namespace Solin.Companion
                 bool gone = sprite.IsVisible && !hidden && maskMode == null && !sprite.Showing();
                 outOfView = gone ? outOfView + 1 : 0;
                 swiped = outOfView % 20 == 2;
-                if (swiped && Environment.GetEnvironmentVariable("SOLIN_DEBUG_SPACES") == "1") Console.WriteLine("[space] " + DateTime.Now.ToString("HH:mm:ss.fff") + " out of view; active desktop " + space);
+                if (swiped && Environment.GetEnvironmentVariable("SOLIN_DEBUG_SPACES") == "1") Console.WriteLine("[space] " + DateTime.Now.ToString("HH:mm:ss.fff") + " out of view; active desktop " + space + "; window " + Spaces.Number(sprite) + " showing " + sprite.Showing() + " visible " + sprite.IsVisible);
             }
             if (swiped && (DateTime.Now - lastSpaceHop).TotalSeconds > 0.6)
             {

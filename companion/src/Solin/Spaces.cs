@@ -202,6 +202,14 @@ namespace Solin.Companion
             catch (Exception) { }
         }
 
+        // Clicks through or not, switched while it is open: through her empty space, not her art.
+        internal static void IgnoreMouse(Window window, bool through)
+        {
+            if (!OperatingSystem.IsMacOS()) return;
+            IntPtr ns = Native(window);
+            if (ns != IntPtr.Zero) try { SetNumber(ns, sel_registerName("setIgnoresMouseEvents:"), through ? 1 : 0); } catch (Exception) { }
+        }
+
         // Clicks go straight through to whatever is underneath: for overlays that only draw.
         internal static void ClickThrough(Window window)
         {
