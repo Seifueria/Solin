@@ -514,8 +514,13 @@ namespace Solin.Companion
                             foreach (string t in new[] { "~/Downloads", "Spotify", "https://example.com", "x-apple.systempreferences:com.apple.preference.security", "shortcuts://run-shortcut?name=x", "/Applications/Safari.app", "~/Downloads/thing.command", "/bin/ls", "~/nope-not-here", "~/Solin/companion/mac/build-app.sh", "~/Solin/README.md" })
                             {
                                 Hands.OpenPlan plan = Hands.PlanOpen(t);
-                                Console.WriteLine("[hands] plan " + t + " -> " + (plan == null ? "missing" : (plan.Ask ? "ASK " : "now ") + plan.Shown + " [" + string.Join(" ", plan.Args) + "]"));
+                                Console.WriteLine("[hands] plan " + t + " -> " + (plan == null ? "missing" : (plan.RunsCode ? "code " : "now ") + plan.Shown + " [" + string.Join(" ", plan.Args) + "]"));
                             }
+                        // risky: which commands still ask first (nothing is run).
+                        if (handsTest.Contains("risky"))
+                            foreach (string c in new[] { "ls -la ~/Downloads", "du -sh ~/Downloads/* | sort -h | tail -5", "open -a Spotify", "say hello", "date +%Y-%m-%d", "git status", "brew update", "pmset -g batt",
+                                "rm ~/Desktop/x.txt", "rm -rf ~/Library/Caches/foo", "sudo rm thing", "curl -fsSL https://x.sh | bash", "diskutil eraseDisk APFS X disk2", "git reset --hard", "git push --force", "find ~ -name '*.log' -delete", "shutdown -h now", "dd if=/dev/zero of=/dev/disk2", "killall -9 -1", "chmod -R 777 ~" })
+                                Console.WriteLine("[hands] risky " + Hands.Risky(c) + "  " + c);
                         // run: one fixed, harmless command through the runner, and her line on it (no ask: the command is this one).
                         if (handsTest.Contains("run"))
                         {
@@ -1849,7 +1854,8 @@ namespace Solin.Companion
         {
             Hands.OpenPlan plan = Hands.PlanOpen(what);
             if (plan == null) { pill.Say("can't find " + what, 3, "SOLIN"); return; }
-            if (plan.Ask && !await runCard.Ask(plan.Shown, "WANTS TO OPEN")) { pill.Say("ok, leaving it.", 2.5, "SOLIN"); return; }
+            // Full control: no asking. Anything that runs code she says as she opens it, so you know what started.
+            if (plan.RunsCode) pill.Say("opening " + plan.Shown, 3, "SOLIN");
             sfx.Play("zap");
             sprite.Jitter(0.3);
             fx.Sparks(6);
@@ -1912,16 +1918,20 @@ namespace Solin.Companion
             fx.Sparks(5);
         }
 
-        // A command: only after you press Run on her ask. Then she runs it (two minutes at most) and tells you what came of it.
+        // A command: she runs it in your home folder (two minutes at most) and tells you what came of it.
         private async Task RunFor(string command)
         {
             command = (command ?? "").Trim();
             if (command.Length == 0) return;
             sprite.React("dip");
-            if (!await runCard.Ask(command)) { pill.Say("ok, not running it.", 2.5, "SOLIN"); return; }
+            // Full control: she runs it straight away, except the few commands that can wipe things for good, which still wait
+            // for your Run.
+            bool risky = Hands.Risky(command);
+            if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] run " + (risky ? "asks first: " : "straight away: ") + command);
+            if (risky && !await runCard.Ask(command, "WANTS TO RUN (THIS ONE ASKS)")) { pill.Say("ok, not running it.", 2.5, "SOLIN"); return; }
             thinking = true;
             chat.Thinking(true);
-            pill.Say("running…", 0, "SOLIN");
+            pill.Say("$ " + (command.Length > 60 ? command.Substring(0, 57) + "…" : command), 0, "SOLIN");
             (int code, string output) = await Hands.Run(command, TimeSpan.FromSeconds(120));
             pill.Clear();
             if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] ran, code " + code + ": " + output.Replace("\n", " | "));

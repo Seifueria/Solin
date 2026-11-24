@@ -84,7 +84,7 @@ class SolinBrain:
                "interesting. Most glances, stay quiet.")
         do = ("DO: one tag that plays off what's on their screen, or just - for nothing. About half your glances, do something: "
               "a terminal narrating what they're up to, sitting on or zapping the window they're busy in, pointing at something "
-              "funny, hopping somewhere. Vary it: not the same antic as at your last glance. " + ("Open or click something only now and then, and ask to run something rarely. "
+              "funny, hopping somewhere. Vary it: not the same antic as at your last glance. " + ("Open or click something now and then, and run something only rarely. "
               if hands else "") + "Never anything that could spoil their work.")
         ask = ("(You just glanced at their screen; the pictures are attached. Answer in exactly three lines:\n"
                "SAW: what they're doing, plainly, in under twelve words.\n" + say + "\n" + do + "\nNo emoji.)")
