@@ -1,5 +1,6 @@
 """Solin's two-pass brain over any provider: internal thought, mood, visible reply."""
 import random
+import re
 import sys
 
 from core_ai import load_prompt, memory
@@ -16,11 +17,11 @@ class OfflineBrain:
 
     last_actions = []
 
-    def reply(self, text, context="", image=None, sentences=2, hands=False):
+    def reply(self, text, context="", image=None, sentences=2, hands=False, looked=True):
         return "[offline] My brain's not plugged in yet. Set a key in core_ai/.env or start Ollama, then switch me.", "", persona.mood_of(text)
 
     def remark(self, image, context=""):
-        return "", "neutral"
+        return "", "neutral", ""
 
     def meddle(self, images, context=""):
         return "", "neutral", []
@@ -38,12 +39,16 @@ class SolinBrain:
         self.preprompt = preprompt if preprompt is not None else load_prompt()
         self.mem = mem if mem is not None else memory.load_memory()
 
-    def reply(self, text, context="", image=None, sentences=2, hands=False):
+    def reply(self, text, context="", image=None, sentences=2, hands=False, looked=True):
         """image: a screenshot path, or a list of them (one per screen); the visible reply is written while looking at it.
+        looked: they asked her to look; otherwise the picture only lets her know what they are doing right now.
         hands: she may ask to open, click or run things; what she asked for is left in last_actions."""
         self.last_actions = []
-        if image:
+        if image and looked:
             context = (context + "\n" if context else "") + "They asked you to look at their screen; a screenshot of it is attached. Say what you see them doing, specifically, in your voice, and react to it."
+        elif image:
+            context = (context + "\n" if context else "") + ("You keep an eye on their screen: a picture of it as it is right now is attached, so you know what "
+                       "they're doing. Bring it up only when it matters to what they said, or to act on it; don't describe it otherwise.")
         system, msgs = persona.internal_messages(self.mem, text)
         if context:
             system += "\n" + context
@@ -63,7 +68,7 @@ class SolinBrain:
         bleed = 0.2 if mood in ("teasing", "annoyed") else 0.05 if mood in ("calm", "warm") else 0.1
         if internal and sentences >= 2 and random.random() < bleed:
             visible += f" [soft sigh] ({internal.split('.')[0].strip()})"
-        entry = {"user": text + (" [showed you their screen]" if image else ""), "solin_visible": visible, "solin_internal": internal}
+        entry = {"user": text + (" [showed you their screen]" if image and looked else ""), "solin_visible": visible, "solin_internal": internal}
         if self.last_actions:
             entry["solin_actions"] = self.last_actions
         self.mem.append(entry)
@@ -71,14 +76,28 @@ class SolinBrain:
         return visible, internal, mood
 
 
-    def remark(self, image, context=""):
-        """One short line about a screenshot of what they are doing, in her voice. Not kept in her memory."""
+    def remark(self, image, context="", quiet=False):
+        """A glance at a screenshot of what they're doing: (line, mood, seen). seen: a plain note of what they're doing,
+        for her to remember a while. line: what she says about it, in her voice, or "" when it's not worth saying
+        (most glances), and always "" when quiet. Not kept in her memory."""
         system = f"{self.preprompt}\n{context}\n\n{persona.STYLE}"
-        ask = ("(You just glanced at their screen; the screenshot is attached. React to what they're doing in one short line, "
-               "under fifteen words, in your voice, like someone watching over their shoulder. Don't describe the screenshot. No emoji.)")
+        say = ("SAY: -" if quiet else
+               "SAY: one short line reacting to it, under fifteen words, in your voice, like someone watching over their shoulder; "
+               "or just - when it's not worth saying anything, because nothing much changed since you last looked or it isn't "
+               "interesting. Most glances, stay quiet.")
+        ask = ("(You just glanced at their screen; the screenshot is attached. Answer in exactly two lines:\n"
+               "SAW: what they're doing, plainly, in under twelve words.\n" + say + "\nNo emoji.)")
         msgs = persona.history(self.mem, limit=6) + [{"role": "user", "content": ask}]
-        raw = self.provider.complete(system, msgs, max_tokens=60, image=image)
-        return persona.brief(persona.tidy(raw), "", 1), persona.mood_of(raw)
+        raw = self.provider.complete(system, msgs, max_tokens=90, image=image)
+        seen = re.search(r"SAW:\s*(.+)", raw or "")
+        said = re.search(r"SAY:\s*(.+)", raw or "")
+        if not seen and not said:
+            # Not in the two-line form: the whole thing is her line, as before.
+            line = raw
+        else:
+            line = said.group(1).strip() if said else ""
+        line = "" if quiet or re.fullmatch(r"[-–—\s.]*", line or "") else persona.brief(persona.tidy(line), "", 1)
+        return line, persona.mood_of(line or raw), (seen.group(1).strip()[:120] if seen else "")
 
     def meddle(self, images, context=""):
         """Nobody asked: she looks at their screens (one picture each) and maybe does one small thing on her own.

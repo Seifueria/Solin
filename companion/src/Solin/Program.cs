@@ -92,7 +92,7 @@ namespace Solin.Companion
         // Glancing at your screen now and then for something to say (on unless turned off): every few minutes while you are
         // at the Mac. The screenshot goes to her brain and is deleted straight after.
         private bool watchScreen = true, glanceRefused;
-        private double watchEvery = 5;
+        private double watchEvery = 2;
         private DateTime nextGlance = DateTime.Now.AddMinutes(2);
         private readonly DispatcherTimer glanceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
         // Which windows were on screen last look; a wholesale change means you swiped to another Space and she came along.
@@ -489,6 +489,17 @@ namespace Solin.Companion
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_SKY") == "1")
                     DispatcherTimer.RunOnce(() => Console.WriteLine("[sky] started " + Stargaze(asked: true)), TimeSpan.FromSeconds(3));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") == "1") skyTimer.Interval = TimeSpan.FromSeconds(4);
+                // A line sent to her as if typed, and how many lines the chat log gains from it (one of yours, one of hers).
+                string askTest = Environment.GetEnvironmentVariable("SOLIN_DEBUG_ASK");
+                if (!string.IsNullOrEmpty(askTest))
+                    DispatcherTimer.RunOnce(async () =>
+                    {
+                        int before = chat.Count;
+                        chat.AddYou(askTest);
+                        await Ask(askTest);
+                        await Task.Delay(4000);
+                        Console.WriteLine("[ask] chat lines gained " + (chat.Count - before) + "; she said: " + bubble.LastText);
+                    }, TimeSpan.FromSeconds(6));
                 string handsTest = Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS_TEST");
                 if (!string.IsNullOrEmpty(handsTest))
                     DispatcherTimer.RunOnce(async () =>
@@ -1496,12 +1507,17 @@ namespace Solin.Companion
             {
                 chat.Thinking(true);
                 bool looking = look || LookAsk.IsMatch(text);
-                if (handsOn && (looking || ClickAsk.IsMatch(text)))
+                // With Glance on she keeps an eye on your screen anyway: every message goes with a picture of it, so she
+                // knows what you are doing (and can click) without being asked to look. Asked, she says so and looks harder.
+                bool watching = watchScreen && !glanceRefused && ScreenShot.Allowed();
+                bool asked = looking || (handsOn && ClickAsk.IsMatch(text));
+                if (handsOn && (asked || watching))
                 {
-                    pill.Say("looking at your screen…", 0, "SOLIN");
+                    if (asked) pill.Say("looking at your screen…", 0, "SOLIN");
                     shots = await CaptureForHands();
                     pill.Clear();
-                    if (shots.Count == 0)
+                    if (shots.Count == 0 && !asked) shots = null;
+                    else if (shots.Count == 0)
                     {
                         ScreenShot.Request();
                         thinking = false;
@@ -1511,14 +1527,15 @@ namespace Solin.Companion
                         lookPermissionAsked = true;
                         return;
                     }
-                    fx.Sparks(8);
+                    else if (asked) fx.Sparks(8);
                 }
-                else if (looking)
+                else if (looking || watching)
                 {
-                    pill.Say("looking at your screen…", 0, "SOLIN");
+                    if (looking) pill.Say("looking at your screen…", 0, "SOLIN");
                     shot = await ScreenShot.Capture(sprite.Screens.All.Count);
                     pill.Clear();
-                    if (shot == null)
+                    if (shot == null && !looking) { }
+                    else if (shot == null)
                     {
                         ScreenShot.Request();
                         thinking = false;
@@ -1528,9 +1545,9 @@ namespace Solin.Companion
                         lookPermissionAsked = true;
                         return;
                     }
-                    fx.Sparks(8);
+                    else if (looking) fx.Sparks(8);
                 }
-                BackendClient.Reply reply = await backend.Chat(text, null, shot, shot == null ? 1 : ScreenShot.LastScreens, handsOn, shots);
+                BackendClient.Reply reply = await backend.Chat(text, null, shot, shot == null ? 1 : ScreenShot.LastScreens, handsOn, shots, looking);
                 if (shots != null) foreach (ScreenShot.Shot s in shots) ScreenShot.Forget(s.Path);
                 thinking = false;
                 chat.Thinking(false);

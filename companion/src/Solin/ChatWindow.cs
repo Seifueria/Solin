@@ -114,6 +114,9 @@ namespace Solin.Companion
         }
 
         // Her line; the private thought behind it shows on hover.
+        // How many lines the log holds, for checks.
+        internal int Count { get { return messages.Children.Count; } }
+
         internal void AddHer(string text, string mood, string internalThought)
         {
             Control line = Line(text, false, mood);

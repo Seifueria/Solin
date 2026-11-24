@@ -17,6 +17,9 @@ namespace Solin.Companion
         private readonly HttpClient http = new HttpClient { Timeout = TimeSpan.FromSeconds(90) };
         private readonly string baseUrl;
         private readonly string sessionId;
+        // Sent with the requests whose answers this client shows itself, so the same reply coming back on the event
+        // stream is not shown a second time. Replies started anywhere else still come through.
+        private readonly string origin = Guid.NewGuid().ToString("N");
         private CancellationTokenSource listening;
 
         internal event Action<string, double> MoodChanged;
@@ -96,12 +99,13 @@ namespace Solin.Companion
 
         // screens: how many screens the image shows side by side. hands: she may ask to open, click or run things; shots:
         // one picture per screen for clicking, the screen with the mouse first (sent instead of image).
-        internal async Task<Reply> Chat(string text, bool? speak = null, string image = null, int screens = 1, bool hands = false, List<ScreenShot.Shot> shots = null)
+        // look: they asked her to look (otherwise any picture is just so she knows what they are doing).
+        internal async Task<Reply> Chat(string text, bool? speak = null, string image = null, int screens = 1, bool hands = false, List<ScreenShot.Shot> shots = null, bool look = false)
         {
             object body = ShotsBody(shots);
             string json = speak.HasValue
-                ? await Post("/chat", new { session_id = sessionId, text, speak = speak.Value, image, screens, hands, shots = body })
-                : await Post("/chat", new { session_id = sessionId, text, image, screens, hands, shots = body });
+                ? await Post("/chat", new { session_id = sessionId, origin, text, speak = speak.Value, image, screens, hands, shots = body, look })
+                : await Post("/chat", new { session_id = sessionId, origin, text, image, screens, hands, shots = body, look });
             using (JsonDocument doc = JsonDocument.Parse(json))
             {
                 JsonElement root = doc.RootElement;
@@ -129,7 +133,7 @@ namespace Solin.Companion
         // A command you let her run has finished: her line on what came of it.
         internal async Task<Reply> Ran(string command, int code, string output)
         {
-            using (JsonDocument doc = JsonDocument.Parse(await Post("/ran", new { session_id = sessionId, command, code, output })))
+            using (JsonDocument doc = JsonDocument.Parse(await Post("/ran", new { session_id = sessionId, origin, command, code, output })))
             {
                 JsonElement root = doc.RootElement;
                 string audio = root.TryGetProperty("audio", out JsonElement a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
@@ -256,6 +260,7 @@ namespace Solin.Companion
                     {
                         case "mood": MoodChanged?.Invoke(root.GetProperty("mood").GetString(), root.GetProperty("trust").GetDouble()); break;
                         case "reply":
+                            if (root.TryGetProperty("origin", out JsonElement from) && from.ValueKind == JsonValueKind.String && from.GetString() == origin) break;
                             Replied?.Invoke(root.GetProperty("visible").GetString(),
                                 root.TryGetProperty("mood", out JsonElement m) ? m.GetString() : null,
                                 root.TryGetProperty("audio", out JsonElement au) && au.ValueKind == JsonValueKind.String ? au.GetString() : null,
