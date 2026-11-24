@@ -42,6 +42,19 @@ namespace Solin.Companion
             new[] { "> knock knock", "who's there", "> solin", "solin who", "> solin' your screen time. hi." },
             new[] { "> mount /dev/outside", "device busy", "busy with what. it's outside." },
             new[] { "> history | tail -1", "you, ignoring me", "noted." },
+            new[] { "> while true; do bother kaelen; done", "^C", "fine. i'll start it again later." },
+            new[] { "> alias work='solin'", "now every time you work, you think of me." },
+            new[] { "> npm install chaos", "added 1 package: me", "0 vulnerabilities. probably." },
+            new[] { "> ping your_patience", "64 bytes... 32 bytes... 8 bytes", "getting low, huh." },
+            new[] { "> crontab -l", "*/5 * * * * bother kaelen", "(i don't need cron. i do it by hand.)" },
+            new[] { "> echo $MOOD", "gremlin", "> export MOOD=worse", "ok." },
+            new[] { "> top -o fun", "  1  solin   100%  being a menace", "  2  you       0%  noticing" },
+            new[] { "> watch -n 1 kaelen", "every 1.0s: kaelen", "still there. good." },
+            new[] { "> say boo", "did you jump.", "tell me you jumped." },
+            new[] { "> undo", "nothing to undo", "> redo chaos", "with pleasure." },
+            new[] { "> find ~ -name \"fun\"", "0 results", "you need me more than i thought." },
+            new[] { "> hide cursor", "...", "found it. it was behind me the whole time." },
+            new[] { "> sort -r your_priorities", "1. solin", "2. everything else", "looks right." },
         };
         // Lines for arriving on another screen; {0} is its number.
         private static readonly string[] HopFirst = { "> mv solin display-{0}", "> solin --migrate display-{0}", "> teleport.sh --to {0}" };

@@ -31,6 +31,78 @@ namespace Solin.Companion
         [DllImport(CoreGraphics)] private static extern IntPtr CGEventCreateMouseEvent(IntPtr source, uint type, CGPoint at, uint button);
         [DllImport(CoreGraphics)] private static extern void CGEventPost(uint tap, IntPtr evt);
         [DllImport(CoreFoundation)] private static extern void CFRelease(IntPtr cf);
+        // Moving other apps' windows (her shove) goes through Accessibility, the same permission as clicking.
+        private const string AppServices = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices";
+        [DllImport(AppServices)] [return: MarshalAs(UnmanagedType.I1)] private static extern bool AXIsProcessTrusted();
+        [DllImport(AppServices)] private static extern IntPtr AXUIElementCreateApplication(int pid);
+        [DllImport(AppServices)] private static extern int AXUIElementCopyAttributeValue(IntPtr element, IntPtr attribute, out IntPtr value);
+        [DllImport(AppServices)] private static extern int AXUIElementSetAttributeValue(IntPtr element, IntPtr attribute, IntPtr value);
+        [DllImport(AppServices)] private static extern int AXUIElementSetMessagingTimeout(IntPtr element, float seconds);
+        [DllImport(AppServices)] private static extern IntPtr AXValueCreate(int type, ref CGPoint value);
+        [DllImport(AppServices)] [return: MarshalAs(UnmanagedType.I1)] private static extern bool AXValueGetValue(IntPtr value, int type, out CGPoint point);
+        [DllImport(CoreFoundation)] private static extern IntPtr CFStringCreateWithCString(IntPtr alloc, string text, uint encoding);
+        [DllImport(CoreFoundation)] private static extern long CFArrayGetCount(IntPtr array);
+        [DllImport(CoreFoundation)] private static extern IntPtr CFArrayGetValueAtIndex(IntPtr array, long index);
+        private const int PointValue = 1, SizeValue = 2;
+
+        internal static bool CanMove() { try { return OperatingSystem.IsMacOS() && AXIsProcessTrusted(); } catch (Exception) { return false; } }
+
+        // Slides the window of process pid that is at `from` (screen pixels) to `to` in a few quick steps, off the UI thread.
+        // Where it ended up (macOS may stop it short), or null when that window could not be found or moved.
+        internal static Task<PixelRect?> MoveWindow(int pid, PixelRect from, PixelPoint to, double scaling)
+        {
+            return Task.Run<PixelRect?>(async () =>
+            {
+                if (!OperatingSystem.IsMacOS() || scaling <= 0) return null;
+                IntPtr keyWindows = Key("AXWindows"), keyPos = Key("AXPosition"), keySize = Key("AXSize"), app = IntPtr.Zero, windows = IntPtr.Zero;
+                try
+                {
+                    app = AXUIElementCreateApplication(pid);
+                    if (app == IntPtr.Zero) return null;
+                    AXUIElementSetMessagingTimeout(app, 0.5f);
+                    if (AXUIElementCopyAttributeValue(app, keyWindows, out windows) != 0 || windows == IntPtr.Zero) return null;
+                    double x0 = from.X / scaling, y0 = from.Y / scaling, w0 = from.Width / scaling, h0 = from.Height / scaling;
+                    IntPtr window = IntPtr.Zero;
+                    for (long i = 0; i < CFArrayGetCount(windows) && window == IntPtr.Zero; i++)
+                    {
+                        IntPtr w = CFArrayGetValueAtIndex(windows, i);
+                        CGPoint p = Read(w, keyPos, PointValue), s = Read(w, keySize, SizeValue);
+                        if (Math.Abs(p.X - x0) <= 6 && Math.Abs(p.Y - y0) <= 6 && Math.Abs(s.X - w0) <= 6 && Math.Abs(s.Y - h0) <= 6) window = w;
+                    }
+                    if (window == IntPtr.Zero) return null;
+                    const int steps = 7;
+                    for (int k = 1; k <= steps; k++)
+                    {
+                        double t = 1 - Math.Pow(1 - k / (double)steps, 2);
+                        CGPoint at = new CGPoint { X = x0 + (to.X / scaling - x0) * t, Y = y0 + (to.Y / scaling - y0) * t };
+                        IntPtr v = AXValueCreate(PointValue, ref at);
+                        int err = AXUIElementSetAttributeValue(window, keyPos, v);
+                        CFRelease(v);
+                        if (err != 0) { if (k == 1) return null; break; }
+                        await Task.Delay(22);
+                    }
+                    CGPoint end = Read(window, keyPos, PointValue);
+                    if (double.IsNaN(end.X)) return null;
+                    return new PixelRect((int)Math.Round(end.X * scaling), (int)Math.Round(end.Y * scaling), from.Width, from.Height);
+                }
+                catch (Exception) { return null; }
+                finally
+                {
+                    if (windows != IntPtr.Zero) CFRelease(windows);
+                    if (app != IntPtr.Zero) CFRelease(app);
+                    CFRelease(keyWindows); CFRelease(keyPos); CFRelease(keySize);
+                }
+            });
+        }
+
+        private static CGPoint Read(IntPtr element, IntPtr key, int type)
+        {
+            CGPoint p = new CGPoint { X = double.NaN, Y = double.NaN };
+            if (AXUIElementCopyAttributeValue(element, key, out IntPtr v) == 0 && v != IntPtr.Zero) { if (!AXValueGetValue(v, type, out p)) p = new CGPoint { X = double.NaN, Y = double.NaN }; CFRelease(v); }
+            return p;
+        }
+
+        private static IntPtr Key(string name) { return CFStringCreateWithCString(IntPtr.Zero, name, 0x08000100); }
         private const uint LeftDown = 1, LeftUp = 2, Moved = 5, HidTap = 0;
 
         // Whether macOS lets her click for you (System Settings › Privacy & Security › Accessibility).
