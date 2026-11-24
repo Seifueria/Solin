@@ -115,8 +115,8 @@ namespace Solin.Companion
         // Her hands: opening, clicking, running (running always waits for your Run). Off in Settings turns all of it off.
         private RunCard runCard;
         private bool handsOn = true;
-        private bool meddling;
-        private DateTime nextMeddle = DateTime.MinValue;
+        // Opening, clicking or running on her own, from a glance: not more often than this.
+        private DateTime nextOwnHands = DateTime.MinValue;
         private bool clickPermissionAsked, clickPermissionCard;
         private static readonly (string title, string line)[] Tour =
         {
@@ -556,6 +556,26 @@ namespace Solin.Companion
                     }, TimeSpan.FromSeconds(5));
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_GLANCE") is "1" or "root")
                     DispatcherTimer.RunOnce(async () => { Console.WriteLine("[glance] looking; allowed " + ScreenShot.Allowed()); await Glance(now: true); Console.WriteLine("[glance] refused " + glanceRefused + " said: " + (bubble.IsVisible ? "yes" : "no") + " " + ScreenShot.LastError); }, TimeSpan.FromSeconds(6));
+                // Testing antics without the brain: SOLIN_DEBUG_ANTIC="kind:what;kind:what", like "zap:Finder;point:1 400 300 | HERE",
+                // one every 8 seconds.
+                string antics = Environment.GetEnvironmentVariable("SOLIN_DEBUG_ANTIC");
+                if (!string.IsNullOrEmpty(antics))
+                {
+                    string[] list = antics.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    for (int i = 0; i < list.Length; i++)
+                    {
+                        string antic = list[i];
+                        if (!antic.Contains(':')) continue;
+                        DispatcherTimer.RunOnce(async () =>
+                        {
+                            System.Collections.Generic.List<ScreenShot.Shot> shots = await CaptureForHands();
+                            foreach (ScreenShot.Shot s in shots) ScreenShot.Forget(s.Path);
+                            int colon = antic.IndexOf(':');
+                            Console.WriteLine("[antic] testing " + antic + " on " + shots.Count + " picture(s): " + string.Join(", ", shots.ConvertAll(s => s.Area + " " + s.W + "x" + s.H)) + "; me at " + sprite.ScreenCentre);
+                            await Act(new[] { (antic.Substring(0, colon), antic.Substring(colon + 1)) }, shots, own: true);
+                        }, TimeSpan.FromSeconds(5 + 8 * i));
+                    }
+                }
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_POSE") == "1")
                 {
                     DispatcherTimer poseProbe = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -827,15 +847,39 @@ namespace Solin.Companion
         }
 
         // She sinks into a window and wears it for a few seconds; if she is not on one, she teleports onto one first.
-        private bool Possess(bool asked = false)
+        // app: one of that app's windows if it has one showing, else any.
+        private bool Possess(bool asked = false, string app = null)
         {
             bool busy = hidden || thinking || sprite.Asleep || possess.Running || sky.Running || (agentState == "working" || agentState == "needs_you");
             if (busy && !asked) return false;
             if (hidden || possess.Running) return false;
-            if (sprite.Seated) { BeginPossession(); return true; }
+            if (sprite.Seated && (app == null || (sprite.SeatBounds is PixelRect seated && sprite.WindowsOf(app).Contains(seated)))) { BeginPossession(); return true; }
             possessPending = true;
-            if (!sprite.TeleportToLedge(lie: false)) { possessPending = false; if (asked) pill.Say("no window to climb into", 3, "SOLIN"); return false; }
-            return true;
+            if (app != null && sprite.TeleportToLedge(lie: false, app)) return true;
+            possessPending = false;
+            // That app's window has no ledge she can reach (it runs up to the top of its screen, say): she climbs into it
+            // from where she stands instead.
+            System.Collections.Generic.List<PixelRect> windows = app != null ? sprite.WindowsOf(app) : null;
+            if (windows != null && windows.Count > 0) { PossessFrom(windows[0]); return true; }
+            possessPending = true;
+            if (sprite.TeleportToLedge(lie: false)) return true;
+            possessPending = false;
+            if (asked) pill.Say("no window to climb into", 3, "SOLIN");
+            return false;
+        }
+
+        // Into a window without sitting on it first: over to its screen if she is on another, then in from above it.
+        private void PossessFrom(PixelRect window)
+        {
+            DispatcherTimer.RunOnce(() =>
+            {
+                if (possess.Running || hidden) return;
+                sfx.Play("buzz");
+                int entry = Math.Clamp(sprite.ScreenCentre.X, window.X + Px(40), window.Right - Px(40));
+                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[antic] possessing " + window + " from " + entry + "; me at " + sprite.ScreenCentre);
+                sprite.HideForEntrance();
+                possess.Possess(() => window, entry, 7);
+            }, ComeOver(window) + TimeSpan.FromMilliseconds(1));
         }
 
         private void BeginPossession()
@@ -980,7 +1024,7 @@ namespace Solin.Companion
             if (napUntil.HasValue && now >= napUntil.Value) { napUntil = null; if (sprite.Asleep) { sprite.Wake(); sfx.Play("soft"); } return; }
             // Testing one action: a Claude session at work (the one running the test, usually) does not hold her back.
             bool forced = rush && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE_ONLY"));
-            bool busy = hidden || maskMode != null || thinking || meddling || runCard.Waiting || sprite.Asleep || bubble.IsVisible || (card.IsVisible && !forced) || emote.Running || possess.Running
+            bool busy = hidden || maskMode != null || thinking || runCard.Waiting || sprite.Asleep || bubble.IsVisible || (card.IsVisible && !forced) || emote.Running || possess.Running
                 || sky.Running || wake.IsVisible || grab.IsVisible || typer.IsVisible || (chat.IsVisible && chat.IsActive) || (!forced && (agentState == "working" || agentState == "needs_you"));
             if (rush && busy) Console.WriteLine("[idle] busy");
             if (busy || (!rush && pick.NextDouble() > 0.45 + sprite.Wanderlust * 0.5)) return;
@@ -998,7 +1042,6 @@ namespace Solin.Companion
                 (mischief ? 1.0 : 0, "tug", TugCursor),
                 (mischief ? 2.6 : 0, "infect", () => Infect()),
                 (mischief ? 2.4 : 0, "zapwin", ZapWindow),
-                (handsOn ? 1.4 : 0, "meddle", Meddle),
                 (1.0, "eye", IdleEye),
                 (sprite.Seated ? 1.5 : 0, "lie", () => { if (sprite.Lying) sprite.SitUp(); else sprite.LieDown(); return true; }),
                 (0.8, "nap", () => { sprite.Sleep(); napUntil = now.AddSeconds(60 + pick.NextDouble() * 120); return sprite.Asleep; }),
@@ -1106,7 +1149,39 @@ namespace Solin.Companion
             if (windows.Count == 0) return false;
             System.Collections.Generic.List<PixelRect> pool = windows.GetRange(0, Math.Min(5, windows.Count));
             for (int i = pool.Count - 1; i > 0; i--) { int j = pick.Next(i + 1); (pool[i], pool[j]) = (pool[j], pool[i]); }
-            int spread = Math.Min(pool.Count, pick.NextDouble() < 0.4 ? 2 + pick.Next(2) : 1);
+            Zap(pool, Math.Min(pool.Count, pick.NextDouble() < 0.4 ? 2 + pick.Next(2) : 1));
+            return true;
+        }
+
+        // An app's front window, from a glance at what you're doing: she goes to its screen if she isn't there and zaps it.
+        // Any window when the app has none showing.
+        private bool ZapApp(string app)
+        {
+            System.Collections.Generic.List<PixelRect> windows = sprite.WindowsOf(app);
+            if (windows.Count == 0) return ZapWindow();
+            PixelRect target = windows[0];
+            if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[antic] zapping " + app + " window " + target + " of " + windows.Count);
+            DispatcherTimer.RunOnce(() => Zap(new System.Collections.Generic.List<PixelRect> { target }, 1), ComeOver(target));
+            return true;
+        }
+
+        // Before pointing at something on another of your screens she teleports onto that screen, beside it (one window
+        // can't reach across screens). How long to wait before pointing: nothing when she is already there.
+        private TimeSpan ComeOver(PixelRect target)
+        {
+            Screen there = sprite.Screens.ScreenFromPoint(target.Center);
+            Screen here = sprite.Screens.ScreenFromPoint(sprite.ScreenCentre);
+            if (there == null || (here != null && here.Bounds.Equals(there.Bounds))) return TimeSpan.Zero;
+            PixelRect area = there.WorkingArea;
+            int x = Math.Clamp(target.Center.X + (target.Center.X < area.Center.X ? 1 : -1) * Px(160), area.X + Px(60), area.Right - Px(60));
+            sfx.Play("zap");
+            sprite.Teleport(sprite.StandingAt(new PixelPoint(x, area.Bottom)));
+            return TimeSpan.FromSeconds(2.4);
+        }
+
+        // Red lightning round the first spread of these windows, one after another a second apart.
+        private void Zap(System.Collections.Generic.List<PixelRect> pool, int spread)
+        {
             for (int i = 0; i < spread; i++)
             {
                 int n = i;
@@ -1120,19 +1195,20 @@ namespace Solin.Companion
                     if (n == spread - 1) DispatcherTimer.RunOnce(() => pointer.Stop(), TimeSpan.FromSeconds(2.2));
                 }, TimeSpan.FromSeconds(n * 1.1));
             }
-            return true;
         }
 
-        // Now and then, while you are at the Mac and she is free, a look at your screen and one short line about it.
+        // Now and then, while you are at the Mac and she is free, a look at your screens: maybe a short line about it, and
+        // now and then something she does off the back of it, like living in there (an antic; with hands, sometimes an open
+        // or a click, rarely a run, which still asks).
         private async Task Glance(bool now = false)
         {
             if (!now && (!watchScreen || glanceRefused || DateTime.Now < nextGlance)) return;
             double? idle = Mouse.IdleSeconds();
-            bool busy = hidden || maskMode != null || thinking || meddling || runCard.Waiting || sprite.Asleep || bubble.IsVisible || card.IsVisible || typer.IsVisible || agentState == "needs_you";
+            bool busy = hidden || maskMode != null || thinking || runCard.Waiting || sprite.Asleep || bubble.IsVisible || card.IsVisible || typer.IsVisible || agentState == "needs_you";
             if (!now && (busy || !idle.HasValue || idle.Value > 45)) return;
             nextGlance = DateTime.Now.AddMinutes(watchEvery * (0.7 + pick.NextDouble() * 0.6));
-            string shot = await ScreenShot.Capture(sprite.Screens.All.Count);
-            if (shot == null)
+            System.Collections.Generic.List<ScreenShot.Shot> shots = await CaptureForHands();
+            if (shots.Count == 0)
             {
                 // No Screen Recording permission: ask macOS in her own name (its prompt, and her entry in the list), say so
                 // once, then stop trying until she is restarted.
@@ -1145,26 +1221,38 @@ namespace Solin.Companion
                 }
                 return;
             }
+            bool debug = Environment.GetEnvironmentVariable("SOLIN_DEBUG_GLANCE") is "1" or "root";
+            BackendClient.Reply? got = null;
             try
             {
-                // Debugging: keep a copy of what she saw, and say how many screens it holds.
+                // Debugging: keep a copy of what she saw.
                 string keep = Environment.GetEnvironmentVariable("SOLIN_DEBUG_KEEP_SHOT");
-                if (!string.IsNullOrEmpty(keep)) { System.IO.File.Copy(shot, keep, true); Console.WriteLine("[glance] screens " + ScreenShot.LastScreens + " " + ScreenShot.LastError); }
+                if (!string.IsNullOrEmpty(keep)) System.IO.File.Copy(shots[0].Path, keep, true);
                 sprite.Flourish("look");
-                BackendClient.Reply? got = await backend.Remark(shot, ScreenShot.LastScreens);
-                if (got.HasValue && !string.IsNullOrWhiteSpace(got.Value.Visible) && !thinking && !bubble.IsVisible && !card.IsVisible)
-                {
-                    BackendClient.Reply line = got.Value;
-                    // With mischief on, now and then it is typed out in her terminal instead of said in the bubble.
-                    bool root = mischief && !infect.Running && (pick.NextDouble() < 0.35 || Environment.GetEnvironmentVariable("SOLIN_DEBUG_GLANCE") == "root");
-                    if (root) Infect(new[] { "> cat /dev/screen", TalkLook.Spoken(line.Visible).ToLowerInvariant() });
-                    else bubble.Say(line.Visible, line.Mood);
-                    chat.AddHer(line.Visible, line.Mood, null);
-                    if (line.Audio != null) _ = voice.Play(line.Audio);
-                }
+                got = await backend.Remark(shots, handsOn);
             }
-            catch (Exception) { }
-            finally { ScreenShot.Forget(shot); }
+            catch (Exception e) { if (debug) Console.WriteLine("[glance] failed: " + e.Message); }
+            finally { foreach (ScreenShot.Shot s in shots) ScreenShot.Forget(s.Path); }
+            if (debug) Console.WriteLine("[glance] said \"" + (got?.Visible ?? "") + "\" did " + (got.HasValue ? string.Join(", ", got.Value.Actions) : "nothing"));
+            if (!got.HasValue) return;
+            BackendClient.Reply line = got.Value;
+            bool terminal = false;
+            foreach ((string kind, string _) in line.Actions) if (kind == "terminal") terminal = true;
+            if (!string.IsNullOrWhiteSpace(line.Visible) && !thinking && !bubble.IsVisible && !card.IsVisible)
+            {
+                // With mischief on, now and then it is typed out in her terminal instead of said in the bubble.
+                bool root = mischief && !terminal && !infect.Running && (pick.NextDouble() < 0.35 || Environment.GetEnvironmentVariable("SOLIN_DEBUG_GLANCE") == "root");
+                if (root) Infect(new[] { "> cat /dev/screen", TalkLook.Spoken(line.Visible).ToLowerInvariant() });
+                else bubble.Say(line.Visible, line.Mood);
+                chat.AddHer(line.Visible, line.Mood, null);
+                if (line.Audio != null) _ = voice.Play(line.Audio);
+            }
+            if (line.Actions.Count > 0 && !thinking)
+            {
+                // A beat after she speaks, so the line lands first.
+                if (!string.IsNullOrWhiteSpace(line.Visible)) await Task.Delay(1200);
+                await Act(line.Actions, shots, own: true);
+            }
         }
 
         // A teleport to somewhere on the floor of her screen.
@@ -1501,7 +1589,6 @@ namespace Solin.Companion
             if (Affection.IsMatch(text)) PlayEmote("heart", asked: true);
             thinking = true;
             sprite.React("dip");
-            string shot = null;
             System.Collections.Generic.List<ScreenShot.Shot> shots = null;
             try
             {
@@ -1511,7 +1598,7 @@ namespace Solin.Companion
                 // knows what you are doing (and can click) without being asked to look. Asked, she says so and looks harder.
                 bool watching = watchScreen && !glanceRefused && ScreenShot.Allowed();
                 bool asked = looking || (handsOn && ClickAsk.IsMatch(text));
-                if (handsOn && (asked || watching))
+                if (asked || watching)
                 {
                     if (asked) pill.Say("looking at your screen…", 0, "SOLIN");
                     shots = await CaptureForHands();
@@ -1529,25 +1616,7 @@ namespace Solin.Companion
                     }
                     else if (asked) fx.Sparks(8);
                 }
-                else if (looking || watching)
-                {
-                    if (looking) pill.Say("looking at your screen…", 0, "SOLIN");
-                    shot = await ScreenShot.Capture(sprite.Screens.All.Count);
-                    pill.Clear();
-                    if (shot == null && !looking) { }
-                    else if (shot == null)
-                    {
-                        ScreenShot.Request();
-                        thinking = false;
-                        chat.Thinking(false);
-                        card.Show("mac", "PERMISSION", Card.Red, "I can't see your screen yet.",
-                            "Turn Solin on in System Settings › Privacy & Security › Screen Recording, then quit and reopen me.", null, "OPEN SETTINGS", 30);
-                        lookPermissionAsked = true;
-                        return;
-                    }
-                    else if (looking) fx.Sparks(8);
-                }
-                BackendClient.Reply reply = await backend.Chat(text, null, shot, shot == null ? 1 : ScreenShot.LastScreens, handsOn, shots, looking);
+                BackendClient.Reply reply = await backend.Chat(text, null, null, 1, handsOn, shots, looking);
                 if (shots != null) foreach (ScreenShot.Shot s in shots) ScreenShot.Forget(s.Path);
                 thinking = false;
                 chat.Thinking(false);
@@ -1568,12 +1637,11 @@ namespace Solin.Companion
             }
             finally
             {
-                ScreenShot.Forget(shot);
                 if (shots != null) foreach (ScreenShot.Shot s in shots) ScreenShot.Forget(s.Path);
             }
         }
 
-        // A picture of each screen for her to click by, the one with your cursor first; empty without Screen Recording.
+        // A picture of each screen for her to click or point by, the one with your cursor first; empty without Screen Recording.
         private Task<System.Collections.Generic.List<ScreenShot.Shot>> CaptureForHands()
         {
             double scale = sprite.Screens.Primary?.Scaling ?? 1;
@@ -1582,13 +1650,28 @@ namespace Solin.Companion
             return ScreenShot.CaptureEach(areas, Mouse.Position(scale), scale);
         }
 
-        // Does what she asked for, in order. own: she decided it herself, unasked (then a click waits for you to be still).
-        // shots: the pictures her clicks are measured on (only their places and sizes are needed; the files may be gone).
+        // Does what she asked for, in order: her antics, and with hands on her opens, clicks and runs. own: she decided it
+        // herself, unasked (then a click waits for you to be still, and she opens, clicks or runs at most every 5 minutes).
+        // shots: the pictures her clicks and points are measured on (only their places and sizes are needed; the files may
+        // be gone).
         private async Task Act(System.Collections.Generic.IReadOnlyList<(string kind, string what)> actions, System.Collections.Generic.List<ScreenShot.Shot> shots, bool own)
         {
             foreach ((string kind, string what) in actions)
             {
-                if (!handsOn) return;
+                if (kind != "open" && kind != "click" && kind != "run")
+                {
+                    bool did = false;
+                    try { did = Antic(kind, what, shots); } catch (Exception e) { Console.WriteLine("[antic] " + kind + " failed: " + e.Message); }
+                    if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1" || Environment.GetEnvironmentVariable("SOLIN_DEBUG_GLANCE") is "1" or "root")
+                        Console.WriteLine("[antic] " + kind + " " + what + (did ? " done" : " couldn't"));
+                    continue;
+                }
+                if (!handsOn) continue;
+                if (own)
+                {
+                    if (DateTime.Now < nextOwnHands && Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") != "1") { Console.WriteLine("[hands] " + kind + " skipped, too soon after the last"); continue; }
+                    nextOwnHands = DateTime.Now.AddMinutes(5);
+                }
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] " + kind + " " + what + (own ? " (own)" : ""));
                 // Testing: say what she would do and do none of it.
                 if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS_DRY") == "1")
@@ -1616,6 +1699,79 @@ namespace Solin.Companion
                 }
                 catch (Exception e) { Console.WriteLine("[hands] " + kind + " failed: " + e.Message); }
             }
+        }
+
+        // One of her antics, by name: what she writes in a tag. They only move her and draw over the screen; nothing on the
+        // Mac is touched. False when it can't happen right now.
+        private bool Antic(string kind, string what, System.Collections.Generic.List<ScreenShot.Shot> shots)
+        {
+            what = (what ?? "").Trim();
+            if (hidden || maskMode != null || sprite.Asleep) return false;
+            switch (kind)
+            {
+                case "zap":
+                    return mischief && ZapApp(what);
+                case "sit":
+                {
+                    bool lie = pick.NextDouble() < 0.3;
+                    if (what.Length > 0 && sprite.TeleportToLedge(lie, what)) { sfx.Play("zap"); return true; }
+                    // That app's windows have no ledge she can reach (they run up to the top of the screen): she zaps it
+                    // instead, or failing that sits on whatever window she can.
+                    if (mischief && what.Length > 0 && sprite.WindowsOf(what).Count > 0) return ZapApp(what);
+                    bool ok = sprite.TeleportToLedge(lie);
+                    if (ok) sfx.Play("zap");
+                    return ok;
+                }
+                case "possess":
+                    return Possess(asked: true, app: what.Length > 0 ? what : null);
+                case "point":
+                    return PointAt(what, shots);
+                case "terminal":
+                {
+                    if (!mischief) return false;
+                    System.Collections.Generic.List<string> lines = new System.Collections.Generic.List<string>();
+                    foreach (string part in System.Text.RegularExpressions.Regex.Split(what, @"\s+/\s+|\s*\|\s*|\n"))
+                    {
+                        string line = part.Trim();
+                        if (line.Length > 0) lines.Add((line.Length > 70 ? line.Substring(0, 70) : line).ToLowerInvariant());
+                        if (lines.Count == 5) break;
+                    }
+                    return lines.Count > 0 && Infect(lines.ToArray());
+                }
+                case "hop":
+                    return what.IndexOf("other", StringComparison.OrdinalIgnoreCase) >= 0 && sprite.Screens.All.Count > 1 ? HopScreens() : HopSomewhere();
+                case "emote":
+                    return PlayEmote(what.IndexOf("chair", StringComparison.OrdinalIgnoreCase) >= 0 ? "chair" : "heart", asked: true);
+            }
+            return false;
+        }
+
+        // "N x y | label": she points at that spot of picture N (her arrow and the label) for a few seconds, going over to
+        // its screen first if she is on another.
+        private bool PointAt(string what, System.Collections.Generic.List<ScreenShot.Shot> shots)
+        {
+            if (shots == null || shots.Count == 0) return false;
+            int bar = what.IndexOf('|');
+            string where = bar >= 0 ? what.Substring(0, bar) : what;
+            string label = (bar >= 0 ? what.Substring(bar + 1) : "").Trim().ToUpperInvariant();
+            if (label.Length == 0) label = "THIS";
+            if (label.Length > 18) label = label.Substring(0, 18);
+            System.Collections.Generic.List<double> numbers = new System.Collections.Generic.List<double>();
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(where, @"-?\d+(\.\d+)?"))
+                numbers.Add(double.Parse(m.Value, System.Globalization.CultureInfo.InvariantCulture));
+            if (numbers.Count < 2) return false;
+            int n = numbers.Count >= 3 ? (int)numbers[numbers.Count - 3] : 1;
+            if (n < 1 || n > shots.Count) n = 1;
+            PixelPoint spot = ScreenShot.OnScreen(shots[n - 1], numbers[numbers.Count - 2], numbers[numbers.Count - 1]);
+            PixelRect box = new PixelRect(spot.X - Px(22), spot.Y - Px(22), Px(44), Px(44));
+            if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[antic] pointing at " + spot + " on picture " + n + " " + label);
+            DispatcherTimer.RunOnce(() =>
+            {
+                sfx.Play("soft");
+                pointer.Point(() => sprite.HandScreen, () => box, true, label);
+                DispatcherTimer.RunOnce(() => pointer.Stop(), TimeSpan.FromSeconds(3.5));
+            }, ComeOver(box) + TimeSpan.FromMilliseconds(1));
+            return true;
         }
 
         // Opens a file, folder, app or page straight away; anything that would run code waits for your Run.
@@ -1713,49 +1869,6 @@ namespace Solin.Companion
                 thinking = false;
                 chat.Thinking(false);
                 bubble.Say(code == 0 ? "done." : "that didn't work.", "neutral");
-            }
-        }
-
-        // Left alone, now and then she looks at your screens and does one small thing on her own: opens something, clicks
-        // something harmless, or asks to run something. Only while you are at the Mac, and not more than every 8 minutes or so.
-        private bool Meddle()
-        {
-            bool rush = Environment.GetEnvironmentVariable("SOLIN_DEBUG_IDLE") == "1";
-            if (!handsOn || meddling || (!rush && DateTime.Now < nextMeddle) || !ScreenShot.Allowed()) return false;
-            double? idle = Mouse.IdleSeconds();
-            if (!idle.HasValue || idle.Value > 300) return false;
-            meddling = true;
-            nextMeddle = DateTime.Now.AddMinutes(8 + pick.NextDouble() * 6);
-            _ = MeddleNow();
-            return true;
-        }
-
-        private async Task MeddleNow()
-        {
-            System.Collections.Generic.List<ScreenShot.Shot> shots = null;
-            try
-            {
-                shots = await CaptureForHands();
-                if (shots.Count == 0) return;
-                sprite.Flourish("look");
-                BackendClient.Reply? got = await backend.Meddle(shots);
-                foreach (ScreenShot.Shot s in shots) ScreenShot.Forget(s.Path);
-                if (Environment.GetEnvironmentVariable("SOLIN_DEBUG_HANDS") == "1") Console.WriteLine("[hands] meddle: " + (got.HasValue ? got.Value.Visible + " / " + got.Value.Actions.Count + " action(s)" : "nothing"));
-                if (!got.HasValue) return;
-                BackendClient.Reply r = got.Value;
-                if (!string.IsNullOrWhiteSpace(r.Visible) && !bubble.IsVisible && !card.IsVisible)
-                {
-                    bubble.Say(r.Visible, r.Mood);
-                    chat.AddHer(r.Visible, r.Mood, null);
-                    if (r.Audio != null) _ = voice.Play(r.Audio);
-                }
-                await Act(r.Actions, shots, own: true);
-            }
-            catch (Exception e) { Console.WriteLine("[hands] meddle failed: " + e.Message); }
-            finally
-            {
-                if (shots != null) foreach (ScreenShot.Shot s in shots) ScreenShot.Forget(s.Path);
-                meddling = false;
             }
         }
     }
