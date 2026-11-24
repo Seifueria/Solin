@@ -212,10 +212,10 @@ def chat():
         context += screens_line(data)
     # Hands: she may ask to open, click or run things; the companion carries them out (running only with their OK).
     hands = bool(data.get("hands"))
-    shots = valid_shots(data.get("shots")) if hands else []
+    shots = valid_shots(data.get("shots"))
     if shots:
         image = [shot["path"] for shot in shots]
-        context += shots_line(shots)
+        context += shots_line(shots, hands)
     reminder = reminders.parse(text)
     if reminder:
         due, what = reminder
@@ -247,7 +247,8 @@ def chat():
             speaking = False
             broadcast("speaking", {"on": False})
     broadcast("reply", {"session_id": sid, "visible": visible, "mood": s["mood"], "origin": data.get("origin")})
-    actions = list(getattr(brain, "last_actions", None) or []) if hands and not error else []
+    # Her antics always; open, click and run only with hands (the brain drops them otherwise).
+    actions = list(getattr(brain, "last_actions", None) or []) if not error else []
     return jsonify({"visible": visible, "internal": internal, "mood": s["mood"], "trust": s["trust"], "audio": audio, "error": error, "actions": actions})
 
 
@@ -417,39 +418,42 @@ REMARK_GAP = 240
 
 @app.post("/remark")
 def remark():
-    """A glance at their screen: one short line about what they're doing. The screenshot path comes from the companion,
-    which deletes it after; nothing is stored here."""
+    """A glance at their screens: maybe a short line about what they're doing, and now and then one thing she does off
+    the back of it (an antic, or with hands an open, click or run) for the companion to carry out. The pictures come from
+    the companion, which deletes them after: per-screen "shots", or one "image" of them all. Nothing is stored here."""
     data = request.get_json(silent=True) or {}
+    hands = bool(data.get("hands"))
+    shots = valid_shots(data.get("shots"))
     image = data.get("image")
-    if not (isinstance(image, str) and os.path.isfile(image) and image.lower().endswith((".jpg", ".jpeg", ".png"))):
-        return jsonify({"error": "image required"}), 400
     sid, current = session(data.get("session_id"))
-    context = bond.prompt_lines() + screens_line(data)
+    context = bond.prompt_lines()
+    if shots:
+        image = [shot["path"] for shot in shots]
+        context += shots_line(shots, hands)
+    elif isinstance(image, str) and os.path.isfile(image) and image.lower().endswith((".jpg", ".jpeg", ".png")):
+        context += screens_line(data)
+    else:
+        return jsonify({"error": "shots or image required"}), 400
     seen_before = [note for at, note in recent_seen if time.time() - at < 1800][-4:]
     if seen_before:
         context += "\nWhat you saw at your last glances, oldest first: " + "; ".join(seen_before)
     quiet = bool(recent_remarks) and time.time() - recent_remarks[-1][0] < REMARK_GAP
     try:
-        visible, mood, seen = brain.remark(image, context, quiet=quiet)
+        visible, mood, seen, actions = brain.remark(image, context, quiet=quiet, hands=hands)
     except Exception as failure:  # noqa: BLE001
         print(f"[companion_api] remark failed: {failure}", file=sys.stderr)
-        return jsonify({"visible": None})
-    if seen:
-        recent_seen.append((time.time(), seen))
+        return jsonify({"visible": None, "actions": []})
+    if seen or actions:
+        # What she did about it goes with the note, so chat knows she did it.
+        did = "; you did " + ", ".join(f"{a['kind']} {a['what'][:60]}" for a in actions) if actions else ""
+        recent_seen.append((time.time(), (seen or "something on their screen") + did))
         del recent_seen[:-12]
     if not visible:
-        return jsonify({"visible": None, "seen": seen})
+        return jsonify({"visible": None, "seen": seen, "actions": actions})
     recent_remarks.append((time.time(), visible))
     del recent_remarks[:-5]
     s = set_mood(sid, mood if mood != "neutral" else current["mood"])
-    audio = None
-    if voice_default():
-        try:
-            from core_ai import speech
-            audio, _fresh = speech.speak(visible)
-        except Exception as failure:  # noqa: BLE001
-            print(f"[companion_api] voice: {failure}", file=sys.stderr)
-    return jsonify({"visible": visible, "mood": s["mood"], "audio": audio, "seen": seen})
+    return jsonify({"visible": visible, "mood": s["mood"], "audio": spoken(visible), "seen": seen, "actions": actions})
 
 
 def valid_shots(shots):
@@ -470,11 +474,12 @@ def valid_shots(shots):
     return out[:4]
 
 
-def shots_line(shots):
+def shots_line(shots, hands=True):
     sizes = "; ".join(f"picture {n} is {shot['w']} x {shot['h']} pixels" + (" (the screen their mouse is on)" if n == 1 else "")
                       for n, shot in enumerate(shots, 1))
+    how = "To click or point at something" if hands else "To point at something"
     return (f"\nYou were given {len(shots)} picture{'s' if len(shots) > 1 else ''} of their screens, one per screen: {sizes}. "
-            "To click, write <click>N x y</click>: N the picture's number, x and y in that picture's own pixels.")
+            f"{how}, N is the picture's number and x y are in that picture's own pixels.")
 
 
 def spoken(visible):
@@ -488,26 +493,6 @@ def spoken(visible):
     except Exception as failure:  # noqa: BLE001
         print(f"[companion_api] voice: {failure}", file=sys.stderr)
         return None
-
-
-@app.post("/meddle")
-def meddle():
-    """Bored, she looks at their screens and maybe does one small thing on her own. Returns her line and at most one
-    action for the companion to carry out. The pictures are the companion's to delete."""
-    data = request.get_json(silent=True) or {}
-    shots = valid_shots(data.get("shots"))
-    if not shots:
-        return jsonify({"error": "shots required"}), 400
-    sid, current = session(data.get("session_id"))
-    try:
-        line, mood, actions = brain.meddle([shot["path"] for shot in shots], bond.prompt_lines() + shots_line(shots))
-    except Exception as failure:  # noqa: BLE001
-        print(f"[companion_api] meddle failed: {failure}", file=sys.stderr)
-        return jsonify({"visible": None, "actions": []})
-    if not line and not actions:
-        return jsonify({"visible": None, "actions": []})
-    s = set_mood(sid, mood if mood != "neutral" else current["mood"])
-    return jsonify({"visible": line or None, "mood": s["mood"], "audio": spoken(line), "actions": actions})
 
 
 @app.post("/ran")

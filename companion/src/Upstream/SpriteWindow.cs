@@ -258,13 +258,15 @@ namespace Solin.Companion.Upstream
         private bool lieOnArrival;
         private double nextRoam = 150;
 
-        internal bool TeleportToLedge(bool lie)
+        // app: only that app's windows (its name contains this, any case); Solin's addition.
+        internal bool TeleportToLedge(bool lie, string app = null)
         {
             if (desk == null) return false;
             desk.Scale = Screens.Primary?.Scaling ?? 1;
             System.Collections.Generic.List<(Spot spot, int hipX)> choices = new System.Collections.Generic.List<(Spot, int)>();
             foreach (Spot spot in desk.Windows())
             {
+                if (!string.IsNullOrWhiteSpace(app) && !OwnedBy(spot, app)) continue;
                 if (seat != null && spot.Window == seat.Window) continue;
                 if (spot.Bounds.Width < Px(body.Size * 0.9)) continue;
                 int hipX = spot.Bounds.X + (int)(spot.Bounds.Width * (0.2 + random.NextDouble() * 0.6));
@@ -340,6 +342,21 @@ namespace Solin.Companion.Upstream
             if (desk == null) return list;
             desk.Scale = Screens.Primary?.Scaling ?? 1;
             foreach (Spot spot in desk.Windows()) list.Add(spot.Bounds);
+            return list;
+        }
+
+        private static bool OwnedBy(Spot spot, string app)
+        {
+            return spot.Owner != null && spot.Owner.IndexOf(app.Trim(), StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        // The windows on screen of an app whose name contains this, front to back. Solin's addition.
+        internal System.Collections.Generic.List<PixelRect> WindowsOf(string app)
+        {
+            System.Collections.Generic.List<PixelRect> list = new System.Collections.Generic.List<PixelRect>();
+            if (desk == null || string.IsNullOrWhiteSpace(app)) return list;
+            desk.Scale = Screens.Primary?.Scaling ?? 1;
+            foreach (Spot spot in desk.Windows()) if (OwnedBy(spot, app) && spot.Bounds.Width > 60 && spot.Bounds.Height > 40) list.Add(spot.Bounds);
             return list;
         }
 
